@@ -21,9 +21,17 @@ const EMU = 9525; // EMU per pixel
 const emu = (px: number) => Math.round(px * EMU);
 const pxToPt = (px: number) => Math.round(px * 0.75 * 100) / 100;
 
-/** บฟ.-form column widths (Excel "character" units) — from "ตัวอย่าง (ฟอร์มเปล่า).xlsx". */
+/** Every org lane (J–M = สนญ./กฟข./กฟฟ./อื่นๆ) gets the same width, so the
+ *  flow boxes come out the same width in every lane. */
+const LANE_WIDTH_CHARS = 36;
+
+/**
+ * Column widths (Excel "character" units). A–I follow the บฟ. form
+ * ("ตัวอย่าง (ฟอร์มเปล่า).xlsx"); J–M are all `LANE_WIDTH_CHARS`.
+ */
 export const COL_WIDTH_CHARS = [
-  8.16, 51.5, 33, 18.16, 16, 20, 19.16, 20, 27.66, 25.16, 39.66, 42.66, 31.16,
+  8.16, 51.5, 33, 18.16, 16, 20, 19.16, 20, 27.66,
+  LANE_WIDTH_CHARS, LANE_WIDTH_CHARS, LANE_WIDTH_CHARS, LANE_WIDTH_CHARS,
 ];
 const charsToPx = (w: number) => Math.round(w * 7 + 5);
 const COL_PX = COL_WIDTH_CHARS.map(charsToPx);
