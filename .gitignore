@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-ssr
+*.local
+*.tsbuildinfo
+.DS_Store
+.vite
+.claude/settings.local.json
+
+# workflow tab files (user data, not code)
+workflows/

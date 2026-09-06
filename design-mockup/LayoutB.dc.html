@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: "IBM Plex Sans Thai", system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .box { border: 1.5px dashed #b9bdc6; border-radius: 8px; background: #fff; }
+    .fill { border: 1.5px solid #c7cad2; border-radius: 6px; background: #eef0f3; }
+    .t { font-size: 12px; color: #6b7280; }
+    .tb { font-size: 12px; color: #3a4256; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="width: 1100px; height: 760px; background: #fbfbfc; color: #3a4256; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
+
+  <!-- toolbar -->
+  <div style="height: 50px; flex-shrink: 0; border-bottom: 1.5px dashed #b9bdc6; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: #fff;">
+    <div class="fill" style="width: 26px; height: 26px; border-radius: 7px;"></div>
+    <div class="tb">Workflow Builder</div>
+    <div class="fill" style="width: 260px; height: 26px;"></div>
+    <div style="flex: 1;"></div>
+    <div class="fill" style="width: 70px; height: 28px;"></div>
+    <div class="fill" style="width: 60px; height: 28px;"></div>
+    <div class="fill" style="width: 80px; height: 28px; background: #d9dbe6;"></div>
+  </div>
+
+  <div style="flex: 1; min-height: 0; display: flex;">
+
+    <!-- mini step index rail -->
+    <div style="width: 132px; flex-shrink: 0; border-right: 1.5px dashed #b9bdc6; background: #fff; padding: 12px 10px; display: flex; flex-direction: column; gap: 7px;">
+      <div class="t" style="font-weight: 600; margin-bottom: 2px;">ขั้นตอน (12)</div>
+      <div class="fill" style="height: 26px;"></div>
+      <div class="fill" style="height: 26px;"></div>
+      <div class="fill" style="height: 26px;"></div>
+      <div class="fill" style="height: 26px; background: #d9dbe6; border-color: #9aa1ac;"></div>
+      <div class="fill" style="height: 26px;"></div>
+      <div class="fill" style="height: 26px;"></div>
+      <div class="fill" style="height: 26px;"></div>
+      <div class="box" style="height: 30px; border-style: dotted; display: flex; align-items: center; justify-content: center;"><span class="t">+ เพิ่ม</span></div>
+    </div>
+
+    <!-- big diagram area -->
+    <div style="flex: 1; min-width: 0; position: relative; background: #f5f6f8; background-image: radial-gradient(#d9dbe0 1px, transparent 1px); background-size: 22px 22px; display: flex; flex-direction: column;">
+      <div style="flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px;">
+        <div style="display: flex; gap: 10px;">
+          <div class="box" style="width: 130px; height: 26px; display: flex; align-items: center; justify-content: center;"><span class="t">สนญ.</span></div>
+          <div class="box" style="width: 130px; height: 26px; display: flex; align-items: center; justify-content: center;"><span class="t">กฟข.</span></div>
+          <div class="box" style="width: 130px; height: 26px; display: flex; align-items: center; justify-content: center;"><span class="tb">กฟฟ.</span></div>
+          <div class="box" style="width: 130px; height: 26px; display: flex; align-items: center; justify-content: center;"><span class="t">อื่นๆ</span></div>
+        </div>
+        <svg width="470" height="300" viewBox="0 0 470 300">
+          <g stroke="#a9adb7" stroke-width="1.5" fill="none">
+            <path d="M300 44 L300 74"></path><path d="M300 128 L300 158"></path><path d="M300 212 L300 236"></path>
+          </g>
+          <circle cx="300" cy="28" r="15" fill="#e6e8ec" stroke="#b9bdc6" stroke-width="1.5"></circle>
+          <rect x="248" y="74" width="104" height="54" rx="5" fill="#fff" stroke="#b9bdc6" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+          <rect x="248" y="158" width="104" height="54" rx="5" fill="#fff" stroke="#b9bdc6" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+          <polygon points="300,236 340,268 300,300 260,268" fill="#eef0f3" stroke="#9aa1ac" stroke-width="1.5"></polygon>
+        </svg>
+        <div class="t">ผังเต็มพื้นที่ — เลื่อน / ซูมได้อิสระ</div>
+      </div>
+
+      <!-- bottom editing drawer -->
+      <div style="flex-shrink: 0; height: 232px; border-top: 2px solid #9aa1ac; background: #fff; padding: 14px 18px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+          <div class="fill" style="width: 44px; height: 20px; border-radius: 999px;"></div>
+          <div class="tb">ขั้นที่ 4 · ต้องซ่อมแซมอุปกรณ์หรือไม่</div>
+          <div style="flex: 1;"></div>
+          <span class="t">▲ ย่อลิ้นชัก</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;">
+          <div><div class="t" style="margin-bottom: 4px;">งาน/ขั้นตอน</div><div class="fill" style="height: 30px;"></div></div>
+          <div><div class="t" style="margin-bottom: 4px;">ระยะเวลา</div><div class="fill" style="height: 30px;"></div></div>
+          <div><div class="t" style="margin-bottom: 4px;">หน่วยงานหลัก</div><div class="fill" style="height: 30px;"></div></div>
+          <div><div class="t" style="margin-bottom: 4px;">ผู้ปฏิบัติงาน</div><div class="fill" style="height: 30px;"></div></div>
+          <div><div class="t" style="margin-bottom: 4px;">Data In</div><div class="fill" style="height: 30px;"></div></div>
+          <div><div class="t" style="margin-bottom: 4px;">Data Out</div><div class="fill" style="height: 30px;"></div></div>
+          <div><div class="t" style="margin-bottom: 4px;">ระเบียบ</div><div class="fill" style="height: 30px;"></div></div>
+          <div><div class="t" style="margin-bottom: 4px;">Application</div><div class="fill" style="height: 30px;"></div></div>
+        </div>
+        <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+          <div class="t">เส้นทางแยก:</div>
+          <div class="fill" style="width: 150px; height: 26px;"></div>
+          <div class="fill" style="width: 150px; height: 26px;"></div>
+          <div class="box" style="width: 90px; height: 26px; border-style: dotted;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>
