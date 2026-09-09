@@ -190,16 +190,36 @@ export const useStore = create<AppState>((set, get) => ({
     // insert right after the selected step, else at the end
     const at = selectedStepId ? steps.findIndex((s) => s.id === selectedStepId) + 1 : steps.length;
     const firstOrg = lanes.find((l) => l.kind === 'org')?.id ?? lanes[0]?.id ?? '';
-    const lastLane = steps[at - 1]?.laneId ?? firstOrg;
+    const prev = steps[at - 1];
+    const after = steps[at]; // the step this one is pushed down in front of
     const step: Step = {
       id: uid(),
       type,
       label: DEFAULT_LABEL[type],
-      laneId: lastLane,
+      laneId: prev?.laneId ?? firstOrg,
+      // auto-link into the chain: X → after (editable/removable later)
+      branches: after ? [{ id: uid(), label: '', toStepId: after.id }] : undefined,
     };
-    const next = [...steps];
-    next.splice(at, 0, step);
-    set({ steps: next, selectedStepId: step.id, expandedStepId: step.id });
+
+    let list = [...steps];
+    // link the previous step into X
+    if (prev) {
+      const toAfter = after ? prev.branches?.find((b) => b.toStepId === after.id) : undefined;
+      if (toAfter) {
+        // prev → after  becomes  prev → X   (keep prev's label)
+        list = list.map((s) =>
+          s.id === prev.id
+            ? { ...s, branches: s.branches!.map((b) => (b === toAfter ? { ...b, toStepId: step.id } : b)) }
+            : s,
+        );
+      } else if (!prev.branches || prev.branches.length === 0) {
+        list = list.map((s) => (s.id === prev.id ? { ...s, branches: [{ id: uid(), label: '', toStepId: step.id }] } : s));
+      }
+      // else: prev already has other outgoing paths (e.g. a decision) — leave it, user links X manually
+    }
+
+    list.splice(at, 0, step);
+    set({ steps: list, selectedStepId: step.id, expandedStepId: step.id });
   },
 
   updateStep: (id, patch) => {

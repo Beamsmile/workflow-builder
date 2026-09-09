@@ -174,7 +174,7 @@ export default function StepCard({
                 {isDecision ? 'เส้นทางแยก (Decision)' : 'เส้นทางออก'}
                 <span className="hint tiny">
                   {branches.length === 0
-                    ? ' — ไม่มี = ไม่มีลูกศรออกจากขั้นนี้'
+                    ? ' — ยังไม่มีเส้นทางออก (แก้/เพิ่มได้ด้านล่าง)'
                     : isDecision
                       ? ' — ใส่ label ให้แต่ละกิ่ง'
                       : ''}

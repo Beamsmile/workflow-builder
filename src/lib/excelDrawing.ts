@@ -193,10 +193,13 @@ export function computeExcelDiagram(proc: Process): ExcelDiagram {
     const isDecision = step.type === 'decision';
     const boxW = Math.max(150, Math.min(isDecision ? 220 : 250, laneColW(col) - BOX_SIDE_INSET * 2));
     const labelChars = Math.max(8, Math.floor((boxW - 24) / 8.6));
-    const labelLines = wrapLabel(step.label || '-', isDecision ? Math.floor(labelChars * 0.8) : labelChars);
-    const unitLines = step.mainUnit
-      ? wrapLabel(step.mainUnit, isDecision ? Math.floor(labelChars * 0.9) : labelChars + 2)
-      : [];
+    // Process boxes show ONLY the responsible unit (the step text lives in the
+    // table's column B); decision diamonds keep the question + a smaller unit line.
+    const labelLines = isDecision
+      ? wrapLabel(step.label || '-', Math.floor(labelChars * 0.8))
+      : wrapLabel(step.mainUnit || '-', labelChars);
+    const unitLines =
+      isDecision && step.mainUnit ? wrapLabel(step.mainUnit, Math.floor(labelChars * 0.9)) : [];
 
     const textH =
       Math.max(1, labelLines.length) * LINE_PX +
