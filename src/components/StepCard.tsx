@@ -181,6 +181,22 @@ export default function StepCard({
                 </span>
               </div>
 
+              {/* a step that splits is a decision point — offer to fix the type
+                  so the web diagram and the Excel export both draw a diamond */}
+              {!isDecision && branches.length >= 2 && (
+                <div className="routing-notice">
+                  <span>
+                    ขั้นตอนนี้แตก {branches.length} เส้นทาง — ปกติควรเป็นจุดตัดสินใจ
+                  </span>
+                  <button
+                    className="link-btn"
+                    onClick={() => updateStep(step.id, { type: 'decision' })}
+                  >
+                    เปลี่ยนเป็น Decision
+                  </button>
+                </div>
+              )}
+
               {branches.map((br) => (
                 <div key={br.id} className="branch-row">
                   <input

@@ -15,7 +15,7 @@ import { triggerDownload } from './persistence';
 
 const BORDER = '#8a8f99';
 const HEAD_BG = '#dfe3ec';
-const FONT = 'TH Sarabun New';
+const FONT = 'TH SarabunPSK';
 const FONT_SIZE = 16;
 
 type Cell = {
@@ -80,7 +80,7 @@ const unescXml = (s: string) =>
 function richTaskSi(full: string, title: string): string {
   const body = full.slice(title.length);
   const rpr = (bold: boolean) =>
-    `<rPr>${bold ? '<b/><u/>' : ''}<sz val="16"/><color rgb="FF1F2430"/><rFont val="TH Sarabun New"/><family val="2"/></rPr>`;
+    `<rPr>${bold ? '<b/><u/>' : ''}<sz val="16"/><color rgb="FF1F2430"/><rFont val="${FONT}"/><family val="2"/></rPr>`;
   let si = `<si><r>${rpr(true)}<t xml:space="preserve">${escXml(title)}</t></r>`;
   if (body) si += `<r>${rpr(false)}<t xml:space="preserve">${escXml(body)}</t></r>`;
   return si + '</si>';
@@ -215,4 +215,5 @@ export async function exportExcel(proc: Process, fileStem: string) {
     mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
   triggerDownload(out, `${fileStem}.xlsx`);
+  if (diagram.warnings.length) alert(diagram.warnings.join('\n\n'));
 }

@@ -9,3 +9,6 @@ dist-ssr
 
 # workflow tab files (user data, not code)
 workflows/
+
+# ไฟล์ตัวอย่างที่ export ไว้ดู (ไม่ใช่โค้ด)
+ตัวอย่าง-export/
