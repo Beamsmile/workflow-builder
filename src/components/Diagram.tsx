@@ -66,16 +66,33 @@ const Diagram = forwardRef<SVGSVGElement, {
         return (
           <g key={`h-${l.lane.id}`}>
             <rect x={l.x} y={y} width={l.w} height={h} fill={COLORS.headerBg} stroke="#d3d7dd" />
-            <text x={l.centerX} y={y + h / 2} textAnchor="middle" dominantBaseline="central" fontSize={meta ? 11 : 12} fontWeight={600} fill={COLORS.headerText}>
-              {l.lane.label}
-            </text>
+            {/* a collapsed column is too narrow for a horizontal label — stand it
+                up, clipped to the header height so it can't spill off the top */}
+            {l.collapsed ? (
+              <text
+                transform={`translate(${l.centerX}, ${y + h - 5}) rotate(-90)`}
+                textAnchor="start"
+                dominantBaseline="central"
+                fontSize={9.5}
+                fontWeight={600}
+                fill={COLORS.headerText}
+                opacity={0.7}
+              >
+                <title>{l.lane.label}</title>
+                {clipToHeight(l.lane.label, h - 10)}
+              </text>
+            ) : (
+              <text x={l.centerX} y={y + h / 2} textAnchor="middle" dominantBaseline="central" fontSize={meta ? 11 : 12} fontWeight={600} fill={COLORS.headerText}>
+                {l.lane.label}
+              </text>
+            )}
           </g>
         );
       })}
 
       {/* meta-column values, one per step row */}
       {lanes
-        .filter((l) => l.lane.kind === 'meta' && l.lane.field)
+        .filter((l) => l.lane.kind === 'meta' && l.lane.field && !l.collapsed)
         .map((l) => (
           <MetaColumn key={`m-${l.lane.id}`} lane={l} boxes={boxes} />
         ))}
@@ -119,6 +136,12 @@ const Diagram = forwardRef<SVGSVGElement, {
 });
 
 export default Diagram;
+
+/** Shorten a stood-up header label to whatever fits the header's height. */
+function clipToHeight(label: string, px: number): string {
+  const max = Math.max(3, Math.floor(px / 5.3));
+  return label.length <= max ? label : label.slice(0, max - 1) + '…';
+}
 
 function MetaColumn({ lane, boxes }: { lane: LaidLane; boxes: LaidBox[] }) {
   const field = lane.lane.field;

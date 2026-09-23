@@ -8,6 +8,15 @@ const MIN = 0.2;
 const MAX = 2.5;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
+const COLLAPSE_KEY = 'wf:collapseMeta';
+const readCollapse = (): boolean => {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) !== '0'; // on unless turned off
+  } catch {
+    return true;
+  }
+};
+
 export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElement> }) {
   const title = useStore((s) => s.title);
   const bandLabel = useStore((s) => s.bandLabel);
@@ -16,9 +25,35 @@ export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElemen
   const selectedStepId = useStore((s) => s.selectedStepId);
   const selectStep = useStore((s) => s.selectStep);
 
+  // Most flows fill in one or two of the four side columns; the rest were just
+  // empty stripes taking up half the picture. Squeeze them unless asked not to.
+  const [collapseMeta, setCollapseMeta] = useState(readCollapse);
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, collapseMeta ? '1' : '0');
+    } catch {
+      /* private mode — the setting just won't stick */
+    }
+  }, [collapseMeta]);
+
   const layout = useMemo(
-    () => computeLayout({ schemaVersion: 2, title, bandLabel, lanes, steps }),
-    [title, bandLabel, lanes, steps],
+    () =>
+      computeLayout(
+        { schemaVersion: 2, title, bandLabel, lanes, steps },
+        { collapseEmptyMeta: collapseMeta },
+      ),
+    [title, bandLabel, lanes, steps, collapseMeta],
+  );
+
+  // how many side columns nobody has filled in — the button says so out loud
+  const emptyMetaCount = useMemo(
+    () =>
+      lanes.filter(
+        (l) =>
+          l.kind === 'meta' &&
+          (!l.field || !steps.some((s) => (s[l.field!] ?? '').toString().trim())),
+      ).length,
+    [lanes, steps],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -134,7 +169,18 @@ export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElemen
 
   return (
     <section className="diagram-pane">
-      <div className="eyebrow diagram-eyebrow">ผังการไหล · อัปเดตอัตโนมัติ</div>
+      <div className="eyebrow diagram-eyebrow">
+        <span>ผังการไหล · อัปเดตอัตโนมัติ</span>
+        {emptyMetaCount > 0 && (
+          <button
+            className={`chip-btn tiny-chip${collapseMeta ? ' is-on' : ''}`}
+            onClick={() => setCollapseMeta((v) => !v)}
+            title="คอลัมน์ข้าง (ระยะเวลา / Data in / Data out / Application) ที่ยังไม่มีข้อมูล — ย่อให้ผังอ่านง่ายขึ้น ไม่กระทบไฟล์ Excel ที่ export"
+          >
+            {collapseMeta ? `ซ่อนคอลัมน์ว่าง ${emptyMetaCount}` : `แสดงครบทุกคอลัมน์`}
+          </button>
+        )}
+      </div>
 
       <div
         ref={containerRef}

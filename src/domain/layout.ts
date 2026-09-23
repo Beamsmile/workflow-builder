@@ -60,6 +60,8 @@ export interface LaidLane {
   contentW: number;
   channelsL: number;
   channelsR: number;
+  /** a meta column with no data in any step, squeezed down to a thin strip */
+  collapsed?: boolean;
 }
 
 export interface DiagramLayout {
@@ -180,15 +182,27 @@ function colourIntervals(items: { y1: number; y2: number }[]): number[] {
   return out;
 }
 
-export function computeLayout(proc: Process): DiagramLayout {
+/** Knobs the viewer can turn that change the picture but never the data. */
+export interface LayoutOptions {
+  /** squeeze meta columns nobody filled in down to a thin labelled strip */
+  collapseEmptyMeta?: boolean;
+}
+
+export function computeLayout(proc: Process, opts: LayoutOptions = {}): DiagramLayout {
   const steps = proc.steps;
   const N = steps.length;
   const indexById = new Map(steps.map((s, i) => [s.id, i]));
 
   const metaLanes = proc.lanes.filter((l) => l.kind === 'meta');
+  /** a meta column is empty when not one step has anything in its field */
+  const metaEmpty = (l: Lane) =>
+    !l.field || !steps.some((s) => (s[l.field!] ?? '').toString().trim());
+  const isCollapsed = (l: Lane) => !!opts.collapseEmptyMeta && l.kind === 'meta' && metaEmpty(l);
+  // a collapsed column shows no text, so it must not stretch the rows either
+  const shownMetaLanes = metaLanes.filter((l) => !isCollapsed(l));
 
   // ---------- 1. box metrics + row positions ----------
-  const m = steps.map((s) => boxMetrics(s, metaLanes));
+  const m = steps.map((s) => boxMetrics(s, shownMetaLanes));
   const rowCy: number[] = [];
   let cursor = HEADER_HEIGHT + LAYOUT.rowTop;
   for (let i = 0; i < N; i++) {
@@ -344,10 +358,11 @@ export function computeLayout(proc: Process): DiagramLayout {
   let x = LAYOUT.gutter;
   for (const lane of proc.lanes) {
     if (lane.kind === 'meta') {
-      const w = META.width;
+      const collapsed = isCollapsed(lane);
+      const w = collapsed ? META.collapsedW : META.width;
       lanes.push({
         lane, x, w, spineX: x + w / 2, centerX: x + w / 2,
-        contentW: w, channelsL: 0, channelsR: 0,
+        contentW: w, channelsL: 0, channelsR: 0, collapsed,
       });
       x += w;
       continue;

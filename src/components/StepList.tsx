@@ -4,7 +4,7 @@ import StepCard from './StepCard';
 import LaneEditor from './LaneEditor';
 import { Plus } from './icons';
 
-export default function StepList() {
+export default function StepList({ onOpenTable }: { onOpenTable: () => void }) {
   const steps = useStore((s) => s.steps);
   const laneCount = useStore((s) => s.lanes.length);
   const selectedStepId = useStore((s) => s.selectedStepId);
@@ -22,6 +22,13 @@ export default function StepList() {
             onClick={() => setShowLanes((v) => !v)}
           >
             เลน ({laneCount})
+          </button>
+          <button
+            className="chip-btn"
+            onClick={onOpenTable}
+            title="กรอกข้อมูล บฟ. แบบตาราง — ไล่ทีละคอลัมน์ให้ครบทุกขั้นตอน"
+          >
+            ตาราง บฟ.
           </button>
           <button className="chip-btn accent" onClick={() => addStep()}>
             <Plus width={13} height={13} /> เพิ่มขั้นตอน
