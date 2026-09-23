@@ -28,6 +28,23 @@ const uid = () =>
 /** tab id → the file name it is currently written under */
 const fileOf = new Map<string, string>();
 
+export type SaveState = 'saved' | 'saving';
+let saveState: SaveState = 'saved';
+const saveListeners = new Set<(s: SaveState) => void>();
+/** subscribe to "saving / saved" so the UI can reassure the user */
+export function onSaveState(fn: (s: SaveState) => void): () => void {
+  saveListeners.add(fn);
+  return () => saveListeners.delete(fn);
+}
+export function getSaveState(): SaveState {
+  return saveState;
+}
+function setSaveState(next: SaveState) {
+  if (saveState === next) return;
+  saveState = next;
+  saveListeners.forEach((fn) => fn(next));
+}
+
 let hydrated = false;
 let autosaveOn = false;
 
@@ -85,6 +102,7 @@ export function startAutosave(): void {
         tabs: state.tabs.map((t) => ({ id: t.id, name: fileOf.get(t.id) ?? t.name })),
       });
     }
+    setSaveState('saving');
     clearTimeout(timer);
     timer = setTimeout(() => void flush(), 600);
   });
@@ -132,4 +150,5 @@ async function flush(): Promise<void> {
     activeId: s.activeTabId,
     tabs: s.tabs.map((t) => ({ id: t.id, name: fileOf.get(t.id) ?? t.name })),
   });
+  setSaveState('saved');
 }

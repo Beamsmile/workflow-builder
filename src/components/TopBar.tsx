@@ -1,11 +1,23 @@
-import type { RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { useStore } from '../store';
 import { TEMPLATES } from '../domain/templates';
 import { downloadProcess, pickProcessFile, safeFileStem } from '../lib/persistence';
 import { exportPng, exportSvg } from '../lib/exportImage';
 import { exportExcel } from '../lib/exportExcel';
+import { onSaveState, getSaveState, type SaveState } from '../lib/workspace';
 import Menu from './Menu';
 import { BrandMark } from './icons';
+
+/** Quiet reassurance that nothing is lost — the app saves on its own. */
+function SaveIndicator() {
+  const [state, setState] = useState<SaveState>(getSaveState);
+  useEffect(() => onSaveState(setState), []);
+  return (
+    <span className={`save-state${state === 'saving' ? ' is-saving' : ''}`}>
+      {state === 'saving' ? 'กำลังบันทึก…' : '✓ บันทึกแล้ว'}
+    </span>
+  );
+}
 
 export default function TopBar({ svgRef }: { svgRef: RefObject<SVGSVGElement> }) {
   const title = useStore((s) => s.title);
@@ -52,6 +64,8 @@ export default function TopBar({ svgRef }: { svgRef: RefObject<SVGSVGElement> })
             </button>
           ))}
         </Menu>
+
+        <SaveIndicator />
 
         <button
           className="menu-trigger"

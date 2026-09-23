@@ -44,6 +44,29 @@ export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElemen
     fit();
   }, [fit]);
 
+  // Bring the selected step into view — the diagram follows the editor, so you
+  // never edit a step on the left while looking at a different part of the flow.
+  const revealedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !selectedStepId) return;
+    if (revealedRef.current === selectedStepId) return; // already showing it
+    revealedRef.current = selectedStepId;
+    const box = layout.boxes.find((b) => b.step.id === selectedStepId);
+    if (!box) return;
+    setView((v) => {
+      const cw = el.clientWidth;
+      const ch = el.clientHeight;
+      const sx = box.cx * v.scale + v.tx; // where the box sits on screen now
+      const sy = box.cy * v.scale + v.ty;
+      const m = 90; // keep this much clearance from the viewport edges
+      let { tx, ty } = v;
+      if (sy < m || sy > ch - m) ty = ch / 2 - box.cy * v.scale;
+      if (sx < m || sx > cw - m) tx = cw / 2 - box.cx * v.scale;
+      return tx === v.tx && ty === v.ty ? v : { ...v, tx, ty };
+    });
+  }, [selectedStepId, layout]);
+
   const zoomBy = (factor: number) => {
     const el = containerRef.current;
     if (!el) return;

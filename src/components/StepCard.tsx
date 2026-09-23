@@ -1,4 +1,5 @@
-import { useStore } from '../store';
+import { useEffect, useRef } from 'react';
+import { useStore, isDefaultLabel } from '../store';
 import type { Step, StepFields, StepType } from '../domain/types';
 import { TYPE_LABEL } from '../domain/theme';
 import { ChevronDown, ChevronUp, Plus, X, ArrowRight } from './icons';
@@ -55,6 +56,7 @@ export default function StepCard({
   const updateStep = useStore((s) => s.updateStep);
   const deleteStep = useStore((s) => s.deleteStep);
   const moveStep = useStore((s) => s.moveStep);
+  const addStep = useStore((s) => s.addStep);
   const addBranch = useStore((s) => s.addBranch);
   const connectToNext = useStore((s) => s.connectToNext);
   const updateBranch = useStore((s) => s.updateBranch);
@@ -67,8 +69,47 @@ export default function StepCard({
   const nextStep = steps[index + 1];
   const nextAlreadyLinked = branches.some((b) => b.toStepId === nextStep?.id);
 
+  // Small badges on the collapsed card, so the whole flow can be scanned at a
+  // glance: who owns the step, how complete it is, and where it branches.
+  const formFields = FIELDS_FOR[step.type].filter((f) => f !== 'note');
+  const filled = formFields.filter((f) => (step[f] ?? '').toString().trim()).length;
+  const linked = branches.filter((b) => b.toStepId).length;
+  const chips: { key: string; text: string; warn?: boolean; title: string }[] = [];
+  if (step.mainUnit?.trim()) {
+    chips.push({ key: 'unit', text: step.mainUnit.trim(), title: 'หน่วยงานรับผิดชอบหลัก' });
+  }
+  if (formFields.length > 0) {
+    chips.push({
+      key: 'fill',
+      text: `${filled}/${formFields.length}`,
+      warn: filled === 0,
+      title: `กรอกช่อง บฟ. แล้ว ${filled} จาก ${formFields.length} ช่อง`,
+    });
+  }
+  if (linked >= 2) {
+    chips.push({ key: 'br', text: `แตก ${linked} ทาง`, title: 'ขั้นตอนนี้มีหลายเส้นทางออก' });
+  }
+  if (step.type !== 'end' && linked === 0) {
+    chips.push({ key: 'no', text: 'ไม่มีเส้นทางออก', warn: true, title: 'ยังไม่ได้ต่อไปขั้นตอนไหน' });
+  }
+
+  // A step that still has its default name is one the user just created — put
+  // the cursor in the name box with the text selected so they can type straight
+  // over it. Pressing Enter therefore flows: new step → type → Enter → repeat.
+  const labelRef = useRef<HTMLTextAreaElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!expanded || !isDefaultLabel(step.label)) return;
+    labelRef.current?.focus();
+    labelRef.current?.select();
+    cardRef.current?.scrollIntoView({ block: 'nearest' });
+    // only when this card opens, not on every keystroke
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, step.id]);
+
   return (
     <div
+      ref={cardRef}
       className={`step-card${selected ? ' is-selected' : ''}${expanded ? ' is-expanded' : ''}`}
     >
       <div
@@ -141,7 +182,18 @@ export default function StepCard({
       </div>
 
       {!expanded && (
-        <div className="step-card-label">{step.label || <span className="muted">(ยังไม่มีชื่อ)</span>}</div>
+        <div className="step-card-label">
+          {step.label || <span className="muted">(ยังไม่มีชื่อ)</span>}
+          {chips.length > 0 && (
+            <span className="step-chips">
+              {chips.map((c) => (
+                <span key={c.key} className={`step-chip${c.warn ? ' is-warn' : ''}`} title={c.title}>
+                  {c.text}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
       )}
 
       {expanded && (
@@ -149,9 +201,21 @@ export default function StepCard({
           <label className="field">
             <span className="field-label">งาน / ขั้นตอนการดำเนินการ</span>
             <textarea
+              ref={labelRef}
               rows={2}
               value={step.label}
-              onChange={(e) => updateStep(step.id, { label: e.target.value })}
+              placeholder="เช่น ตรวจสอบเอกสารและบันทึกผล"
+              onChange={(e) =>
+                updateStep(step.id, { label: e.target.value.replace(/[\r\n]+/g, ' ') })
+              }
+              onKeyDown={(e) => {
+                // Enter moves on to the next step instead of inserting a line
+                // break — a label is one line, and this makes drafting fast.
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  addStep();
+                }
+              }}
             />
           </label>
 

@@ -21,6 +21,13 @@ const DEFAULT_LABEL: Record<StepType, string> = {
   end: 'สิ้นสุดกระบวนการ',
 };
 
+/** true while a step still carries the name it was born with */
+export function isDefaultLabel(label: string): boolean {
+  const t = (label ?? '').trim();
+  return !t || Object.values(DEFAULT_LABEL).includes(t);
+}
+
+
 interface AppState {
   title: string;
   bandLabel: string;
@@ -224,7 +231,16 @@ export const useStore = create<AppState>((set, get) => ({
 
   updateStep: (id, patch) => {
     set({
-      steps: get().steps.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+      steps: get().steps.map((s) => {
+        if (s.id !== id) return s;
+        const next = { ...s, ...patch };
+        // switching the type renames the step, but only while it still carries
+        // a default name — never overwrite something the user actually typed
+        if (patch.type && patch.type !== s.type && isDefaultLabel(s.label)) {
+          next.label = DEFAULT_LABEL[patch.type];
+        }
+        return next;
+      }),
     });
   },
 
