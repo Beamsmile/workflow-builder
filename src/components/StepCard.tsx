@@ -93,16 +93,25 @@ export default function StepCard({
     chips.push({ key: 'no', text: 'ไม่มีเส้นทางออก', warn: true, title: 'ยังไม่ได้ต่อไปขั้นตอนไหน' });
   }
 
-  // A step that still has its default name is one the user just created — put
-  // the cursor in the name box with the text selected so they can type straight
-  // over it. Pressing Enter therefore flows: new step → type → Enter → repeat.
   const labelRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!expanded || !isDefaultLabel(step.label)) return;
-    labelRef.current?.focus();
-    labelRef.current?.select();
-    cardRef.current?.scrollIntoView({ block: 'nearest' });
+    if (!expanded) return;
+    // An open card is tall, and it may have been opened from the diagram — bring
+    // it to the top of the panel so the whole form is reachable either way.
+    // Wait a frame: the card has only just grown, and the one that closed has
+    // only just shrunk, so scrolling now would aim at a stale position.
+    const raf = requestAnimationFrame(() =>
+      cardRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+    );
+    // A step that still has its default name was just created: put the cursor in
+    // the name box with the text selected, so typing replaces it straight away.
+    // Drafting a flow is then: type → Enter → type → Enter.
+    if (isDefaultLabel(step.label)) {
+      labelRef.current?.focus();
+      labelRef.current?.select();
+    }
+    return () => cancelAnimationFrame(raf);
     // only when this card opens, not on every keystroke
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, step.id]);

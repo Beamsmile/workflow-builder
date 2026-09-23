@@ -456,6 +456,14 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* room below the last card so even it can scroll up to the top when opened */
+  scroll-padding-top: 12px;
+}
+
+.step-list-scroll::after {
+  content: '';
+  flex: none;
+  height: 60vh;
 }
 
 /* ---------------- lane editor ---------------- */
