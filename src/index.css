@@ -732,6 +732,101 @@ textarea {
   font-size: 12px;
 }
 
+/* ---- tabs inside an open step card ---- */
+
+.card-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 12px 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.card-tab:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.card-tab.is-on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.card-tab-n {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.card-tab.is-on .card-tab-n {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-hover);
+}
+
+.card-tab-n.is-warn {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+/* ---- draggable split between editor and diagram ---- */
+
+.splitter {
+  flex: none;
+  width: 7px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid transparent;
+  touch-action: none;
+}
+
+.splitter:hover,
+body.is-resizing .splitter {
+  background: var(--accent-soft);
+  border-right-color: var(--accent);
+}
+
+.splitter-grip {
+  width: 2px;
+  height: 34px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
+.splitter:hover .splitter-grip,
+body.is-resizing .splitter-grip {
+  background: var(--accent);
+}
+
+body.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /* ---- status chips on a collapsed step card ---- */
 
 .step-chips {

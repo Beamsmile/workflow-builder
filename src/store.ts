@@ -50,6 +50,8 @@ interface AppState {
 
   // ---- steps ----
   addStep: (type?: StepType) => void;
+  /** paste a list of names — one step per line, chained into the flow */
+  addStepsFromLines: (afterStepId: string, lines: string[]) => void;
   updateStep: (id: string, patch: Partial<Step> & Partial<StepFields>) => void;
   deleteStep: (id: string) => void;
   moveStep: (id: string, dir: -1 | 1) => void;
@@ -227,6 +229,50 @@ export const useStore = create<AppState>((set, get) => ({
 
     list.splice(at, 0, step);
     set({ steps: list, selectedStepId: step.id, expandedStepId: step.id });
+  },
+
+  addStepsFromLines: (afterStepId, lines) => {
+    const names = lines.map((l) => l.trim()).filter(Boolean);
+    if (names.length === 0) return;
+    const steps = get().steps;
+    const i = steps.findIndex((s) => s.id === afterStepId);
+    if (i < 0) return;
+    const target = steps[i];
+    const after = steps[i + 1];
+
+    // the first line renames the step being pasted into; the rest become new
+    // steps behind it, chained the same way addStep chains a single one
+    const created: Step[] = names.slice(1).map((label) => ({
+      id: uid(),
+      type: 'process' as StepType,
+      label,
+      laneId: target.laneId,
+      branches: undefined,
+    }));
+    const chain = [...created.map((c) => c.id), after?.id ?? null];
+    created.forEach((c, n) => {
+      const to = chain[n + 1];
+      if (to) c.branches = [{ id: uid(), label: '', toStepId: to }];
+    });
+
+    const head: Step = { ...target, label: names[0] };
+    const first = chain[0];
+    if (first) {
+      const toAfter = after ? head.branches?.find((b) => b.toStepId === after.id) : undefined;
+      if (toAfter) {
+        head.branches = head.branches!.map((b) =>
+          b === toAfter ? { ...b, toStepId: first } : b,
+        );
+      } else if (!head.branches || head.branches.length === 0) {
+        head.branches = [{ id: uid(), label: '', toStepId: first }];
+      }
+    }
+
+    const list = [...steps];
+    list[i] = head;
+    list.splice(i + 1, 0, ...created);
+    const last = created[created.length - 1] ?? head;
+    set({ steps: list, selectedStepId: last.id, expandedStepId: last.id });
   },
 
   updateStep: (id, patch) => {
