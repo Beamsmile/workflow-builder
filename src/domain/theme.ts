@@ -35,7 +35,14 @@ export const COLORS = {
 } as const;
 
 /** Side (meta) column: fixed width, centred text per step row. */
-export const META = { width: 152, maxChars: 15, fontSize: 11, weight: 500 } as const;
+export const META = {
+  width: 152,
+  maxChars: 15,
+  fontSize: 11,
+  weight: 500,
+  /** width of a meta column that holds no data and has been collapsed away */
+  collapsedW: 26,
+} as const;
 
 /** Fixed size (px) for the round shapes. Process / decision size to their text. */
 export const ROUND_SIZE: Record<'start' | 'end' | 'connector', number> = {

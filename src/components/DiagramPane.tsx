@@ -8,6 +8,15 @@ const MIN = 0.2;
 const MAX = 2.5;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
+const COLLAPSE_KEY = 'wf:collapseMeta';
+const readCollapse = (): boolean => {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) !== '0'; // on unless turned off
+  } catch {
+    return true;
+  }
+};
+
 export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElement> }) {
   const title = useStore((s) => s.title);
   const bandLabel = useStore((s) => s.bandLabel);
@@ -16,9 +25,35 @@ export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElemen
   const selectedStepId = useStore((s) => s.selectedStepId);
   const selectStep = useStore((s) => s.selectStep);
 
+  // Most flows fill in one or two of the four side columns; the rest were just
+  // empty stripes taking up half the picture. Squeeze them unless asked not to.
+  const [collapseMeta, setCollapseMeta] = useState(readCollapse);
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, collapseMeta ? '1' : '0');
+    } catch {
+      /* private mode — the setting just won't stick */
+    }
+  }, [collapseMeta]);
+
   const layout = useMemo(
-    () => computeLayout({ schemaVersion: 2, title, bandLabel, lanes, steps }),
-    [title, bandLabel, lanes, steps],
+    () =>
+      computeLayout(
+        { schemaVersion: 2, title, bandLabel, lanes, steps },
+        { collapseEmptyMeta: collapseMeta },
+      ),
+    [title, bandLabel, lanes, steps, collapseMeta],
+  );
+
+  // how many side columns nobody has filled in — the button says so out loud
+  const emptyMetaCount = useMemo(
+    () =>
+      lanes.filter(
+        (l) =>
+          l.kind === 'meta' &&
+          (!l.field || !steps.some((s) => (s[l.field!] ?? '').toString().trim())),
+      ).length,
+    [lanes, steps],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -43,6 +78,29 @@ export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElemen
     fittedRef.current = true;
     fit();
   }, [fit]);
+
+  // Bring the selected step into view — the diagram follows the editor, so you
+  // never edit a step on the left while looking at a different part of the flow.
+  const revealedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !selectedStepId) return;
+    if (revealedRef.current === selectedStepId) return; // already showing it
+    revealedRef.current = selectedStepId;
+    const box = layout.boxes.find((b) => b.step.id === selectedStepId);
+    if (!box) return;
+    setView((v) => {
+      const cw = el.clientWidth;
+      const ch = el.clientHeight;
+      const sx = box.cx * v.scale + v.tx; // where the box sits on screen now
+      const sy = box.cy * v.scale + v.ty;
+      const m = 90; // keep this much clearance from the viewport edges
+      let { tx, ty } = v;
+      if (sy < m || sy > ch - m) ty = ch / 2 - box.cy * v.scale;
+      if (sx < m || sx > cw - m) tx = cw / 2 - box.cx * v.scale;
+      return tx === v.tx && ty === v.ty ? v : { ...v, tx, ty };
+    });
+  }, [selectedStepId, layout]);
 
   const zoomBy = (factor: number) => {
     const el = containerRef.current;
@@ -111,7 +169,18 @@ export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElemen
 
   return (
     <section className="diagram-pane">
-      <div className="eyebrow diagram-eyebrow">ผังการไหล · อัปเดตอัตโนมัติ</div>
+      <div className="eyebrow diagram-eyebrow">
+        <span>ผังการไหล · อัปเดตอัตโนมัติ</span>
+        {emptyMetaCount > 0 && (
+          <button
+            className={`chip-btn tiny-chip${collapseMeta ? ' is-on' : ''}`}
+            onClick={() => setCollapseMeta((v) => !v)}
+            title="คอลัมน์ข้าง (ระยะเวลา / Data in / Data out / Application) ที่ยังไม่มีข้อมูล — ย่อให้ผังอ่านง่ายขึ้น ไม่กระทบไฟล์ Excel ที่ export"
+          >
+            {collapseMeta ? `ซ่อนคอลัมน์ว่าง ${emptyMetaCount}` : `แสดงครบทุกคอลัมน์`}
+          </button>
+        )}
+      </div>
 
       <div
         ref={containerRef}

@@ -21,6 +21,13 @@ const DEFAULT_LABEL: Record<StepType, string> = {
   end: 'สิ้นสุดกระบวนการ',
 };
 
+/** true while a step still carries the name it was born with */
+export function isDefaultLabel(label: string): boolean {
+  const t = (label ?? '').trim();
+  return !t || Object.values(DEFAULT_LABEL).includes(t);
+}
+
+
 interface AppState {
   title: string;
   bandLabel: string;
@@ -43,6 +50,8 @@ interface AppState {
 
   // ---- steps ----
   addStep: (type?: StepType) => void;
+  /** paste a list of names — one step per line, chained into the flow */
+  addStepsFromLines: (afterStepId: string, lines: string[]) => void;
   updateStep: (id: string, patch: Partial<Step> & Partial<StepFields>) => void;
   deleteStep: (id: string) => void;
   moveStep: (id: string, dir: -1 | 1) => void;
@@ -222,9 +231,62 @@ export const useStore = create<AppState>((set, get) => ({
     set({ steps: list, selectedStepId: step.id, expandedStepId: step.id });
   },
 
+  addStepsFromLines: (afterStepId, lines) => {
+    const names = lines.map((l) => l.trim()).filter(Boolean);
+    if (names.length === 0) return;
+    const steps = get().steps;
+    const i = steps.findIndex((s) => s.id === afterStepId);
+    if (i < 0) return;
+    const target = steps[i];
+    const after = steps[i + 1];
+
+    // the first line renames the step being pasted into; the rest become new
+    // steps behind it, chained the same way addStep chains a single one
+    const created: Step[] = names.slice(1).map((label) => ({
+      id: uid(),
+      type: 'process' as StepType,
+      label,
+      laneId: target.laneId,
+      branches: undefined,
+    }));
+    const chain = [...created.map((c) => c.id), after?.id ?? null];
+    created.forEach((c, n) => {
+      const to = chain[n + 1];
+      if (to) c.branches = [{ id: uid(), label: '', toStepId: to }];
+    });
+
+    const head: Step = { ...target, label: names[0] };
+    const first = chain[0];
+    if (first) {
+      const toAfter = after ? head.branches?.find((b) => b.toStepId === after.id) : undefined;
+      if (toAfter) {
+        head.branches = head.branches!.map((b) =>
+          b === toAfter ? { ...b, toStepId: first } : b,
+        );
+      } else if (!head.branches || head.branches.length === 0) {
+        head.branches = [{ id: uid(), label: '', toStepId: first }];
+      }
+    }
+
+    const list = [...steps];
+    list[i] = head;
+    list.splice(i + 1, 0, ...created);
+    const last = created[created.length - 1] ?? head;
+    set({ steps: list, selectedStepId: last.id, expandedStepId: last.id });
+  },
+
   updateStep: (id, patch) => {
     set({
-      steps: get().steps.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+      steps: get().steps.map((s) => {
+        if (s.id !== id) return s;
+        const next = { ...s, ...patch };
+        // switching the type renames the step, but only while it still carries
+        // a default name — never overwrite something the user actually typed
+        if (patch.type && patch.type !== s.type && isDefaultLabel(s.label)) {
+          next.label = DEFAULT_LABEL[patch.type];
+        }
+        return next;
+      }),
     });
   },
 

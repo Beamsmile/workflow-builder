@@ -141,6 +141,8 @@ textarea {
   flex: 1;
   min-height: 0;
   display: flex;
+  /* the บฟ. table view lays over this, so the diagram keeps its zoom and pan */
+  position: relative;
 }
 
 /* ---------------- tab strip ---------------- */
@@ -456,6 +458,14 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* room below the last card so even it can scroll up to the top when opened */
+  scroll-padding-top: 12px;
+}
+
+.step-list-scroll::after {
+  content: '';
+  flex: none;
+  height: 60vh;
 }
 
 /* ---------------- lane editor ---------------- */
@@ -724,6 +734,146 @@ textarea {
   font-size: 12px;
 }
 
+/* ---- tabs inside an open step card ---- */
+
+.card-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 12px 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.card-tab:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.card-tab.is-on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.card-tab-n {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.card-tab.is-on .card-tab-n {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-hover);
+}
+
+.card-tab-n.is-warn {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+/* ---- draggable split between editor and diagram ---- */
+
+.splitter {
+  flex: none;
+  width: 7px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid transparent;
+  touch-action: none;
+}
+
+.splitter:hover,
+body.is-resizing .splitter {
+  background: var(--accent-soft);
+  border-right-color: var(--accent);
+}
+
+.splitter-grip {
+  width: 2px;
+  height: 34px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
+.splitter:hover .splitter-grip,
+body.is-resizing .splitter-grip {
+  background: var(--accent);
+}
+
+body.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* ---- status chips on a collapsed step card ---- */
+
+.step-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.step-chip {
+  display: inline-block;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 17px;
+  cursor: default;
+}
+
+.step-chip.is-warn {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+/* ---- autosave indicator ---- */
+
+.save-state {
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.save-state.is-saving {
+  color: var(--text-muted);
+}
+
 .routing-notice {
   display: flex;
   align-items: center;
@@ -817,10 +967,28 @@ textarea {
 
 .diagram-eyebrow {
   position: absolute;
-  top: 14px;
+  top: 10px;
   left: 16px;
+  right: 16px;
   z-index: 4;
   pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* the collapse toggle is the one clickable thing in the eyebrow row */
+.diagram-eyebrow .chip-btn {
+  pointer-events: auto;
+}
+
+.chip-btn.tiny-chip {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  letter-spacing: 0;
+  text-transform: none;
+  box-shadow: var(--shadow-xs);
 }
 
 .diagram-viewport {
@@ -887,4 +1055,259 @@ textarea {
   font-size: 12px;
   font-weight: 600;
   color: #414855;
+}
+
+
+/* ---------------- บฟ. table view ---------------- */
+
+.table-view {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.table-view-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.table-view-hint {
+  display: block;
+  margin-top: 1px;
+}
+
+.table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 0 40vh;
+}
+
+.bf-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.bf-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border);
+  padding: 7px 9px;
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.bf-table th .th-count {
+  margin-left: 6px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.bf-table td {
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 0;
+  background: var(--surface);
+  vertical-align: middle;
+}
+
+.bf-table tr.is-selected td {
+  background: var(--accent-soft);
+}
+
+.bf-table .col-n {
+  width: 38px;
+  min-width: 38px;
+  text-align: center;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.bf-table th.col-n {
+  z-index: 3;
+}
+
+.bf-table .col-label {
+  width: 320px;
+  min-width: 320px;
+  position: sticky;
+  left: 38px;
+  z-index: 1;
+  box-shadow: 1px 0 0 var(--border-strong);
+}
+
+.bf-table th.col-label {
+  z-index: 3;
+}
+
+.row-n {
+  width: 100%;
+  padding: 6px 0;
+  background: none;
+  border: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.row-n:hover {
+  color: var(--accent);
+}
+
+.cell-input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 7px 9px;
+  font: inherit;
+  color: var(--text);
+  border-radius: 0;
+}
+
+.cell-input:focus {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cell-label {
+  font-weight: 600;
+}
+
+.cell-type {
+  display: block;
+  padding: 0 9px 5px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.cell-na {
+  background: repeating-linear-gradient(
+    -45deg,
+    #f4f5f8,
+    #f4f5f8 5px,
+    #eaecf1 5px,
+    #eaecf1 10px
+  );
+}
+
+/* ---------------- pre-export check ---------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(16, 24, 40, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modal {
+  width: min(660px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  text-align: left;
+}
+
+.modal-head {
+  padding: 15px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-head strong {
+  display: block;
+  font-size: 15px;
+}
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.issue-group {
+  padding: 10px 18px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.issue-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 18px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.issue-row .issue-text {
+  flex: 1;
+}
+
+.issue-row .link-btn {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.issue-dot {
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--text-faint);
+}
+
+.issue-row.is-warn .issue-dot {
+  background: #d97706;
+}
+
+.issue-row.is-ok .issue-dot {
+  background: #16a34a;
 }

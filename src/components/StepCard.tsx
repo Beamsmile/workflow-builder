@@ -1,4 +1,5 @@
-import { useStore } from '../store';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useStore, isDefaultLabel } from '../store';
 import type { Step, StepFields, StepType } from '../domain/types';
 import { TYPE_LABEL } from '../domain/theme';
 import { ChevronDown, ChevronUp, Plus, X, ArrowRight } from './icons';
@@ -35,6 +36,23 @@ const FIELD_LABEL: Record<keyof StepFields, string> = {
 };
 
 const BIG_FIELDS: (keyof StepFields)[] = ['dataIn', 'dataOut', 'regulations'];
+/** short one-line values — these get a dropdown of what you already used */
+const SHORT_FIELDS: (keyof StepFields)[] = ['duration', 'mainUnit', 'operatorRole', 'application'];
+
+type CardTab = 'form' | 'routes' | 'detail';
+
+/** A textarea that grows with its text — long Data in / ระเบียบ values were
+ *  being clipped at two rows with no sign there was more. */
+function GrowTextarea(props: React.ComponentProps<'textarea'>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight + 2, 260)}px`;
+  }, [props.value]);
+  return <textarea ref={ref} {...props} />;
+}
 
 export default function StepCard({
   step,
@@ -55,6 +73,8 @@ export default function StepCard({
   const updateStep = useStore((s) => s.updateStep);
   const deleteStep = useStore((s) => s.deleteStep);
   const moveStep = useStore((s) => s.moveStep);
+  const addStep = useStore((s) => s.addStep);
+  const addStepsFromLines = useStore((s) => s.addStepsFromLines);
   const addBranch = useStore((s) => s.addBranch);
   const connectToNext = useStore((s) => s.connectToNext);
   const updateBranch = useStore((s) => s.updateBranch);
@@ -67,8 +87,83 @@ export default function StepCard({
   const nextStep = steps[index + 1];
   const nextAlreadyLinked = branches.some((b) => b.toStepId === nextStep?.id);
 
+  const [tab, setTab] = useState<CardTab>('form');
+
+  // Everything already typed into this field anywhere in the flow, offered as a
+  // dropdown. Saves retyping "ผู้รับจ้าง" on every step — and keeps the wording
+  // identical, which matters once it reaches the official form.
+  const suggestions = useMemo(() => {
+    const map = {} as Record<string, string[]>;
+    for (const f of SHORT_FIELDS) {
+      const seen = new Set<string>();
+      for (const st of steps) {
+        const v = (st[f] ?? '').toString().trim();
+        if (v) seen.add(v);
+      }
+      map[f] = [...seen].sort();
+    }
+    return map;
+  }, [steps]);
+
+  const subCount = (step.note ?? '').split(/\r?\n/).filter((l) => l.trim()).length;
+
+  // Small badges on the collapsed card, so the whole flow can be scanned at a
+  // glance: who owns the step, how complete it is, and where it branches.
+  const formFields = FIELDS_FOR[step.type].filter((f) => f !== 'note');
+  const filled = formFields.filter((f) => (step[f] ?? '').toString().trim()).length;
+  const linked = branches.filter((b) => b.toStepId).length;
+  // Start/End/Connector have no บฟ. fields, so fall back to a tab that exists
+  const activeTab: CardTab =
+    tab === 'form' && formFields.length === 0
+      ? 'detail'
+      : tab === 'routes' && !showRouting
+        ? 'form'
+        : tab;
+  const chips: { key: string; text: string; warn?: boolean; title: string }[] = [];
+  if (step.mainUnit?.trim()) {
+    chips.push({ key: 'unit', text: step.mainUnit.trim(), title: 'หน่วยงานรับผิดชอบหลัก' });
+  }
+  if (formFields.length > 0) {
+    chips.push({
+      key: 'fill',
+      text: `${filled}/${formFields.length}`,
+      warn: filled === 0,
+      title: `กรอกช่อง บฟ. แล้ว ${filled} จาก ${formFields.length} ช่อง`,
+    });
+  }
+  if (linked >= 2) {
+    chips.push({ key: 'br', text: `แตก ${linked} ทาง`, title: 'ขั้นตอนนี้มีหลายเส้นทางออก' });
+  }
+  if (step.type !== 'end' && linked === 0) {
+    chips.push({ key: 'no', text: 'ไม่มีเส้นทางออก', warn: true, title: 'ยังไม่ได้ต่อไปขั้นตอนไหน' });
+  }
+
+  const labelRef = useRef<HTMLTextAreaElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!expanded) return;
+    // An open card is tall, and it may have been opened from the diagram — bring
+    // it to the top of the panel so the whole form is reachable either way.
+    // Wait a frame: the card has only just grown, and the one that closed has
+    // only just shrunk, so scrolling now would aim at a stale position.
+    const raf = requestAnimationFrame(() =>
+      cardRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+    );
+    // A step that still has its default name was just created: put the cursor in
+    // the name box with the text selected, so typing replaces it straight away.
+    // Drafting a flow is then: type → Enter → type → Enter.
+    if (isDefaultLabel(step.label)) {
+      labelRef.current?.focus();
+      labelRef.current?.select();
+    }
+    return () => cancelAnimationFrame(raf);
+    // only when this card opens, not on every keystroke
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, step.id]);
+
   return (
     <div
+      ref={cardRef}
       className={`step-card${selected ? ' is-selected' : ''}${expanded ? ' is-expanded' : ''}`}
     >
       <div
@@ -141,7 +236,18 @@ export default function StepCard({
       </div>
 
       {!expanded && (
-        <div className="step-card-label">{step.label || <span className="muted">(ยังไม่มีชื่อ)</span>}</div>
+        <div className="step-card-label">
+          {step.label || <span className="muted">(ยังไม่มีชื่อ)</span>}
+          {chips.length > 0 && (
+            <span className="step-chips">
+              {chips.map((c) => (
+                <span key={c.key} className={`step-chip${c.warn ? ' is-warn' : ''}`} title={c.title}>
+                  {c.text}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
       )}
 
       {expanded && (
@@ -149,26 +255,109 @@ export default function StepCard({
           <label className="field">
             <span className="field-label">งาน / ขั้นตอนการดำเนินการ</span>
             <textarea
+              ref={labelRef}
               rows={2}
               value={step.label}
-              onChange={(e) => updateStep(step.id, { label: e.target.value })}
+              placeholder="เช่น ตรวจสอบเอกสารและบันทึกผล"
+              onChange={(e) =>
+                updateStep(step.id, { label: e.target.value.replace(/[\r\n]+/g, ' ') })
+              }
+              onPaste={(e) => {
+                const text = e.clipboardData.getData('text');
+                const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+                if (lines.length < 2) return; // ordinary paste
+                e.preventDefault();
+                addStepsFromLines(step.id, lines);
+              }}
+              onKeyDown={(e) => {
+                // Enter moves on to the next step instead of inserting a line
+                // break — a label is one line, and this makes drafting fast.
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  addStep();
+                }
+              }}
             />
           </label>
 
-          <div className="field-grid">
-            {FIELDS_FOR[step.type].map((f) => (
-              <label key={f} className={`field${BIG_FIELDS.includes(f) || f === 'note' ? ' field-wide' : ''}`}>
-                <span className="field-label">{FIELD_LABEL[f]}</span>
-                <textarea
-                  rows={BIG_FIELDS.includes(f) ? 2 : 1}
-                  value={(step[f] as string) ?? ''}
-                  onChange={(e) => updateStep(step.id, { [f]: e.target.value })}
-                />
-              </label>
-            ))}
+          {/* One tall form was 984px in an 807px panel, so its last fields and
+              the whole routing section sat below the fold. Split into tabs, any
+              one of them fits on screen. */}
+          <div className="card-tabs" role="tablist">
+            {formFields.length > 0 && (
+              <button
+                role="tab"
+                className={`card-tab${activeTab === 'form' ? ' is-on' : ''}`}
+                onClick={() => setTab('form')}
+              >
+                ข้อมูล บฟ. <span className="card-tab-n">{filled}/{formFields.length}</span>
+              </button>
+            )}
+            {showRouting && (
+              <button
+                role="tab"
+                className={`card-tab${activeTab === 'routes' ? ' is-on' : ''}`}
+                onClick={() => setTab('routes')}
+              >
+                เส้นทางออก{' '}
+                <span className={`card-tab-n${linked === 0 ? ' is-warn' : ''}`}>{linked}</span>
+              </button>
+            )}
+            <button
+              role="tab"
+              className={`card-tab${activeTab === 'detail' ? ' is-on' : ''}`}
+              onClick={() => setTab('detail')}
+            >
+              ขั้นตอนย่อย
+              {subCount > 0 && <span className="card-tab-n">{subCount}</span>}
+            </button>
           </div>
 
-          {showRouting && (
+          {activeTab === 'form' && formFields.length > 0 && (
+            <div className="field-grid">
+              {formFields.map((f) => (
+                <label key={f} className={`field${BIG_FIELDS.includes(f) ? ' field-wide' : ''}`}>
+                  <span className="field-label">{FIELD_LABEL[f]}</span>
+                  {SHORT_FIELDS.includes(f) ? (
+                    <>
+                      <input
+                        list={`sug-${step.id}-${f}`}
+                        value={(step[f] as string) ?? ''}
+                        onChange={(e) => updateStep(step.id, { [f]: e.target.value })}
+                      />
+                      <datalist id={`sug-${step.id}-${f}`}>
+                        {(suggestions[f] ?? []).map((v) => (
+                          <option key={v} value={v} />
+                        ))}
+                      </datalist>
+                    </>
+                  ) : (
+                    <GrowTextarea
+                      rows={2}
+                      value={(step[f] as string) ?? ''}
+                      onChange={(e) => updateStep(step.id, { [f]: e.target.value })}
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'detail' && (
+            <div className="field-grid">
+              <label className="field field-wide">
+                <span className="field-label">{FIELD_LABEL.note}</span>
+                <GrowTextarea
+                  rows={4}
+                  value={step.note ?? ''}
+                  placeholder={'พิมพ์บรรทัดละข้อ เช่น\nตรวจสอบข้อมูลจากระบบ\nแจ้งผลให้ผู้เกี่ยวข้อง'}
+                  onChange={(e) => updateStep(step.id, { note: e.target.value })}
+                />
+              </label>
+            </div>
+          )}
+
+          {activeTab === 'routes' && showRouting && (
             <div className="routing">
               <div className="routing-head">
                 {isDecision ? 'เส้นทางแยก (Decision)' : 'เส้นทางออก'}
