@@ -1311,3 +1311,131 @@ body.is-resizing {
 .issue-row.is-ok .issue-dot {
   background: #16a34a;
 }
+
+/* ---- ย้อนกลับ / ทำซ้ำ (แถบบน) ---- */
+
+.history-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.history-btns .icon-btn {
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted);
+}
+
+.history-btns .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- แถบแจ้งเตือนด้านล่าง (หลังลบ มีปุ่มย้อนกลับ) ---- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 9px 10px 9px 16px;
+  border-radius: var(--radius);
+  background: #1f2430;
+  color: #f3f4f6;
+  font-size: 13px;
+  box-shadow: var(--shadow-md);
+  animation: toast-in 0.16s ease-out;
+}
+
+.toast-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #a5b4fc;
+  font-weight: 600;
+}
+
+.toast-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.toast-close {
+  flex-shrink: 0;
+  display: flex;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: #9aa1ac;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+/* ---- ลากวางสลับลำดับขั้น ---- */
+
+.drag-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 22px;
+  margin: 0 -2px 0 -4px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  color: var(--text-faint);
+  cursor: grab;
+}
+
+.drag-grip:hover {
+  background: #f1f2f4;
+  color: var(--text-muted);
+}
+
+.drag-grip:active {
+  cursor: grabbing;
+}
+
+.step-drop {
+  position: relative;
+}
+
+.step-drop.is-dragging {
+  opacity: 0.45;
+}
+
+/* เส้นสีม่วงบอกว่าจะวางตรงไหน — อยู่กลางช่องว่างระหว่างการ์ด (gap 8px) */
+.step-drop.drop-before::before,
+.step-drop.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.step-drop.drop-before::before {
+  top: -6px;
+}
+
+.step-drop.drop-after::after {
+  bottom: -6px;
+}

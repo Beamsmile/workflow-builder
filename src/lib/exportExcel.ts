@@ -1,6 +1,7 @@
 /**
  * Export the process as the บฟ. form (.xlsx) — table **plus** the flow drawn as
- * native, editable Excel shapes in the "ผังการไหลของกระบวนการ" columns (I–M).
+ * native, editable Excel shapes in the "ผังการไหลของกระบวนการ" columns (I = Application,
+ * then one column per org lane, headed by the lane's own name).
  *
  * `write-excel-file` builds the table (row order = step order, one row per
  * process / decision step). It can't draw shapes, so we then open the .xlsx zip
@@ -13,8 +14,11 @@ import type { Process } from '../domain/types';
 import { computeExcelDiagram, taskCellText } from './excelDrawing';
 import { triggerDownload } from './persistence';
 
-const BORDER = '#8a8f99';
-const HEAD_BG = '#dfe3ec';
+// สีตามไฟล์ตัวอย่างของทีม ((Workshop) Maintenance V.4 / Microgrid Operation):
+// หัวตารางพื้นเทาเข้ม #525252 ตัวหนังสือขาวตัวหนา เส้นตารางสีดำ
+const BORDER = '#000000';
+const HEAD_BG = '#525252';
+const HEAD_TEXT = '#FFFFFF';
 const FONT = 'TH SarabunPSK';
 const FONT_SIZE = 16;
 
@@ -24,11 +28,21 @@ type Cell = {
   align?: 'left' | 'center' | 'right';
   alignVertical?: 'top' | 'center' | 'bottom';
   backgroundColor?: string;
+  /** สีตัวหนังสือ */
+  color?: string;
   span?: number;
   rowSpan?: number;
   wrap?: boolean;
   borderColor?: string;
   borderStyle?: 'thin' | 'medium';
+  leftBorderStyle?: 'thin';
+  rightBorderStyle?: 'thin';
+  topBorderStyle?: 'thin';
+  bottomBorderStyle?: 'thin';
+  leftBorderColor?: string;
+  rightBorderColor?: string;
+  topBorderColor?: string;
+  bottomBorderColor?: string;
   fontFamily?: string;
   fontSize?: number;
   height?: number;
@@ -51,6 +65,7 @@ const head = (value: string, extra: Partial<NonNullable<Cell>> = {}): NonNullabl
     align: 'center',
     alignVertical: 'center',
     backgroundColor: HEAD_BG,
+    color: HEAD_TEXT,
     ...extra,
   });
 
@@ -91,11 +106,17 @@ export async function exportExcel(proc: Process, fileStem: string) {
   const diagram = computeExcelDiagram(proc);
 
   const rows: Cell[][] = [];
+  // คอลัมน์ผังมีเลนละคอลัมน์ (ฟอร์มมาตรฐาน 4 เลน = J–M) จำนวนคอลัมน์ทั้งแผ่นจึงขึ้นกับจำนวนเลน
+  const lanes = diagram.laneHeaders.length ? diagram.laneHeaders : ['อื่นๆ'];
+  const totalCols = 9 + lanes.length;
+  const lastCol = totalCols - 1;
+  const blanks = (n: number) => Array(n).fill(null);
 
-  // Row 1 — title across A:M
+  // Row 1 — title across every column
   rows.push([
-    head(proc.title || 'workflow', { span: 13, align: 'left', fontSize: 18, backgroundColor: undefined }),
-    ...Array(12).fill(null),
+    // ชื่อกระบวนการ: ตัวหนาสีดำ ไม่มีพื้น (แบบไฟล์ตัวอย่าง)
+    head(proc.title || 'workflow', { span: totalCols, align: 'left', backgroundColor: undefined, color: '#000000' }),
+    ...blanks(totalCols - 1),
   ]);
 
   // Row 2 / 3 — header
@@ -108,11 +129,8 @@ export async function exportExcel(proc: Process, fileStem: string) {
     head('Data Input', { rowSpan: 2 }),
     head('Data Output', { rowSpan: 2 }),
     head('ระเบียบที่เกี่ยวข้อง', { rowSpan: 2 }),
-    head('ผังการไหลของกระบวนการ', { span: 5 }),
-    null,
-    null,
-    null,
-    null,
+    head('ผังการไหลของกระบวนการ', { span: 1 + lanes.length }),
+    ...blanks(lanes.length),
   ]);
   rows.push([
     null,
@@ -124,15 +142,31 @@ export async function exportExcel(proc: Process, fileStem: string) {
     null,
     null,
     head('Application in Process'),
-    head('สนญ.'),
-    head('กฟข.'),
-    head('กฟฟ.'),
-    head('อื่นๆ'),
+    ...lanes.map((name) => head(name)),
   ]);
 
-  // Data rows — the diagram columns (J–M) are just the drawing canvas now.
+  // Data rows — the diagram columns (J onward) are just the drawing canvas now.
   const richTasks: Array<{ full: string; title: string }> = [];
+  /**
+   * เซลล์ในคอลัมน์ผัง (I ถึงคอลัมน์สุดท้าย) ไม่มีเส้นตารางด้านใน ให้เส้นของผังเห็นชัด (ผู้ใช้ขอ 18 พ.ย. 2569)
+   * เหลือเฉพาะกรอบนอก: ซ้ายของ I, ขวาของคอลัมน์สุดท้าย และล่างสุดของแถวสุดท้าย
+   */
+  const flowCell = (col: number, last: boolean, value: string): NonNullable<Cell> => {
+    const { borderColor: _c, borderStyle: _s, ...rest } = b({ value });
+    const edge = (on: boolean) => (on ? { style: 'thin' as const, color: BORDER } : null);
+    const L = edge(col === 8);
+    const R = edge(col === lastCol);
+    const B = edge(last);
+    return {
+      ...rest,
+      ...(L && { leftBorderStyle: L.style, leftBorderColor: L.color }),
+      ...(R && { rightBorderStyle: R.style, rightBorderColor: R.color }),
+      ...(B && { bottomBorderStyle: B.style, bottomBorderColor: B.color }),
+    };
+  };
+
   steps.forEach((step, i) => {
+    const last = i === steps.length - 1;
     const rowHeight = diagram.rowHeightsPt[i];
     const task = taskCellText(step, proc);
     richTasks.push(task);
@@ -145,11 +179,8 @@ export async function exportExcel(proc: Process, fileStem: string) {
       b({ value: step.dataIn || '-' }),
       b({ value: step.dataOut || '-' }),
       b({ value: step.regulations || '-' }),
-      b({ value: step.application || '-' }),
-      b({ value: '' }),
-      b({ value: '' }),
-      b({ value: '' }),
-      b({ value: '' }),
+      flowCell(8, last, step.application || '-'),
+      ...lanes.map((_, k) => flowCell(9 + k, last, '')),
     ]);
   });
 
@@ -175,7 +206,14 @@ export async function exportExcel(proc: Process, fileStem: string) {
   );
 
   const sheetPath = 'xl/worksheets/sheet1.xml';
-  const sheet = await zip.file(sheetPath)!.async('string');
+  let sheet = await zip.file(sheetPath)!.async('string');
+  // write-excel-file ไม่ใส่ <sheetViews> — ถ้าไม่มี Excel (Mac) จะคิดตำแหน่งรูปทรงแนวตั้งผิดเป็น 0.75 เท่า
+  // (ทดสอบแล้ว: สี่เหลี่ยมที่สูงเท่าแถวพอดีออกมาสูงแค่ 3/4 แถว) ไฟล์ที่ Excel บันทึกเองมีส่วนนี้เสมอ
+  // ลำดับใน <worksheet>: sheetPr, dimension, sheetViews, ... — ไฟล์นี้ไม่มีสองตัวแรก จึงใส่ต้นสุดได้
+  // showGridLines="0": ซ่อนเส้นตารางจาง ๆ ของ Excel เอง ไม่งั้นคอลัมน์ผังที่ไม่มีเส้นขอบจะมีเส้นเทาโผล่แทน
+  if (!sheet.includes('<sheetViews')) {
+    sheet = sheet.replace(/(<worksheet[^>]*>)/, '$1<sheetViews><sheetView showGridLines="0" workbookViewId="0"/></sheetViews>');
+  }
   zip.file(sheetPath, spliceBefore(sheet, '</worksheet>', '<drawing r:id="rId1"/>'));
 
   const sheetRelsPath = 'xl/worksheets/_rels/sheet1.xml.rels';
@@ -193,6 +231,17 @@ export async function exportExcel(proc: Process, fileStem: string) {
   }
 
   zip.file('xl/drawings/drawing1.xml', diagram.drawingXml);
+
+  // ฟอนต์ตั้งต้นของไฟล์ (Normal) เป็นตัวกำหนดว่า "1 ตัวอักษร" ของความกว้างคอลัมน์กว้างกี่ px
+  // write-excel-file ใส่ Calibri 12 (≈8px/ตัว) แต่ฟอร์ม บฟ. และ excelDrawing.ts คิดแบบ Calibri 11
+  // (7px/ตัว) — ถ้าไม่แก้ คอลัมน์ใน Excel จะกว้างเกินที่คำนวณราว 14% แล้วป้าย/เส้นอ้อมจะเยื้อง
+  // (เซลล์ในตารางตั้งฟอนต์ TH SarabunPSK 16 ของตัวเองอยู่แล้ว จึงไม่กระทบหน้าตาตาราง)
+  const stylesPath = 'xl/styles.xml';
+  const stylesFile = zip.file(stylesPath);
+  if (stylesFile) {
+    const styles = await stylesFile.async('string');
+    zip.file(stylesPath, styles.replace(/(<fonts[^>]*>\s*<font>\s*<sz val=")\d+(")/, '$111$2'));
+  }
 
   // --- rich text for the "งาน/ขั้นตอน" column (bold + underlined title) ---
   const ssPath = 'xl/sharedStrings.xml';

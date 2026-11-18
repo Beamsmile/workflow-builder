@@ -55,6 +55,8 @@ interface AppState {
   updateStep: (id: string, patch: Partial<Step> & Partial<StepFields>) => void;
   deleteStep: (id: string) => void;
   moveStep: (id: string, dir: -1 | 1) => void;
+  /** ลากวาง: ย้ายขั้น `id` ไปแทรกก่อนตำแหน่ง `beforeIndex` (นับตามลำดับก่อนย้าย, = steps.length คือท้ายสุด) */
+  moveStepTo: (id: string, beforeIndex: number) => void;
 
   // ---- branches ----
   addBranch: (stepId: string, toStepId?: string | null) => void;
@@ -70,13 +72,21 @@ interface AppState {
   moveLane: (id: string, dir: -1 | 1) => void;
 
   // ---- whole document ----
-  loadTemplate: (templateId: string) => void;
-  loadProcess: (proc: Process) => void;
+  /**
+   * เปิดงาน (จากไฟล์หรือเทมเพลต) เป็นแท็บใหม่ — ไม่เขียนทับแท็บที่เปิดอยู่
+   * ยกเว้นแท็บปัจจุบันยังว่างเปล่า ก็ใช้แท็บนั้นเลย
+   */
+  openProcess: (proc: Process) => void;
   toProcess: () => Process;
 
   // ---- tabs (one workflow per tab) ----
   /** has the saved workspace been loaded from storage yet */
   hydrated: boolean;
+  /**
+   * เพิ่มขึ้นทุกครั้งที่จอแสดง "งานคนละชิ้น" (โหลดงานที่บันทึกไว้ สลับ/เปิด/ปิดแท็บ)
+   * ให้ผังจัดซูมให้พอดีจอใหม่ — ไม่งั้นยังค้างซูม/ตำแหน่งของงานก่อนหน้า อาจเห็นแต่พื้นที่ว่าง
+   */
+  viewKey: number;
   tabs: TabMeta[];
   activeTabId: string;
   /** content of every tab that is NOT the active one (active = the fields above) */
@@ -178,6 +188,7 @@ export const useStore = create<AppState>((set, get) => ({
   ...initial,
 
   hydrated: false,
+  viewKey: 0,
   tabs: [{ id: firstTabId, name: safeStem(initial.title) }],
   activeTabId: firstTabId,
   _inactive: {},
@@ -291,13 +302,26 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   deleteStep: (id) => {
+    const gone = get().steps.find((s) => s.id === id);
+    // ขั้นที่ลบมีทางออกทางเดียว (A → X → B) → ต่อ A → B ให้เลย ไม่ให้เส้นขาดกลางสาย
+    // (ตรงข้ามกับตอนเพิ่มขั้นที่แทรกเข้า chain ให้อัตโนมัติ) ถ้า X แตกหลายทาง เดาไม่ได้ว่าควรไปทางไหน
+    // จึงปล่อยเส้นนั้นว่างไว้ให้ผู้ใช้เลือกเอง (หน้าตรวจก่อน export จะเตือน)
+    const outs = (gone?.branches ?? []).filter((b) => b.toStepId && b.toStepId !== id);
+    const heir = outs.length === 1 ? outs[0].toStepId : null;
     const steps = get().steps
       .filter((s) => s.id !== id)
-      .map((s) =>
-        s.branches?.some((b) => b.toStepId === id)
-          ? { ...s, branches: s.branches.map((b) => (b.toStepId === id ? { ...b, toStepId: null } : b)) }
-          : s,
-      );
+      .map((s) => {
+        if (!s.branches?.some((b) => b.toStepId === id)) return s;
+        const to = heir && heir !== s.id ? heir : null; // ไม่ต่อเส้นวนเข้าตัวเอง
+        const already = (b: Branch) => b.toStepId === to;
+        const branches = s.branches.flatMap((b) => {
+          if (b.toStepId !== id) return [b];
+          // มีเส้นไป B อยู่แล้ว และเส้นนี้ไม่มีป้าย → ทิ้งไป ไม่ให้มีเส้นซ้ำ
+          if (to && s.branches!.some((o) => o !== b && already(o)) && !b.label.trim()) return [];
+          return [{ ...b, toStepId: to }];
+        });
+        return { ...s, branches };
+      });
     set({
       steps,
       selectedStepId: get().selectedStepId === id ? null : get().selectedStepId,
@@ -311,6 +335,18 @@ export const useStore = create<AppState>((set, get) => ({
     const j = i + dir;
     if (i < 0 || j < 0 || j >= steps.length) return;
     [steps[i], steps[j]] = [steps[j], steps[i]];
+    set({ steps });
+  },
+
+  moveStepTo: (id, beforeIndex) => {
+    const steps = [...get().steps];
+    const i = steps.findIndex((s) => s.id === id);
+    if (i < 0) return;
+    // ตำแหน่งหลังดึงตัวเองออกแล้ว (ถ้าลากลง ทุกอย่างข้างล่างเลื่อนขึ้น 1)
+    const j = Math.max(0, Math.min(steps.length - 1, beforeIndex > i ? beforeIndex - 1 : beforeIndex));
+    if (j === i) return;
+    const [moved] = steps.splice(i, 1);
+    steps.splice(j, 0, moved);
     set({ steps });
   },
 
@@ -400,17 +436,22 @@ export const useStore = create<AppState>((set, get) => ({
     set({ lanes });
   },
 
-  loadTemplate: (templateId) => {
-    const t = TEMPLATES.find((it) => it.id === templateId);
-    if (!t) return;
-    const p = fromProcess(t.build());
-    set({ ...p, selectedStepId: p.steps[0]?.id ?? null, expandedStepId: null });
-  },
-
-  loadProcess: (proc) => {
-    const p = fromProcess(proc);
-    set({ ...p, selectedStepId: p.steps[0]?.id ?? null, expandedStepId: null });
-  },
+  // เดิม "เปิด" กับ "เทมเพลต" แทนที่งานในแท็บปัจจุบัน — ชื่อกระบวนการเปลี่ยน ระบบบันทึกอัตโนมัติ
+  // จึงลบไฟล์งานเดิมทิ้งไปด้วย (งานหาย) ตอนนี้เปิดเป็นแท็บใหม่เสมอ
+  openProcess: (proc) =>
+    set((s) => {
+      const p = fromProcess(proc);
+      const doc = { ...p, selectedStepId: p.steps[0]?.id ?? null, expandedStepId: null };
+      if (isBlankDoc(snapshot(s))) return { ...doc, viewKey: s.viewKey + 1 }; // แท็บนี้ยังว่าง ไม่มีอะไรให้เสีย
+      const id = uid();
+      return {
+        _inactive: { ...s._inactive, [s.activeTabId]: snapshot(s) },
+        tabs: [...s.tabs, { id, name: uniqueName(safeStem(p.title), id, s.tabs) }],
+        activeTabId: id,
+        viewKey: s.viewKey + 1,
+        ...doc,
+      };
+    }),
 
   toProcess: () => {
     const { title, bandLabel, lanes, steps } = get();
@@ -426,6 +467,7 @@ export const useStore = create<AppState>((set, get) => ({
         _inactive: { ...s._inactive, [s.activeTabId]: snapshot(s) },
         tabs: [...s.tabs, { id, name: uniqueName(safeStem(blank.title), id, s.tabs) }],
         activeTabId: id,
+        viewKey: s.viewKey + 1,
         ...blank,
       };
     }),
@@ -437,7 +479,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (!target) return {};
       const inactive = { ...s._inactive, [s.activeTabId]: snapshot(s) };
       delete inactive[id];
-      return { activeTabId: id, _inactive: inactive, ...target };
+      return { activeTabId: id, _inactive: inactive, viewKey: s.viewKey + 1, ...target };
     }),
 
   closeTab: (id) =>
@@ -449,6 +491,7 @@ export const useStore = create<AppState>((set, get) => ({
           tabs: [{ id: s.tabs[0].id, name: safeStem(blank.title) }],
           activeTabId: s.tabs[0].id,
           _inactive: {},
+          viewKey: s.viewKey + 1,
           ...blank,
         };
       }
@@ -461,11 +504,11 @@ export const useStore = create<AppState>((set, get) => ({
       const nextId = tabs[Math.min(idx, tabs.length - 1)].id;
       const target = inactive[nextId] ?? blankSnap();
       delete inactive[nextId];
-      return { tabs, activeTabId: nextId, _inactive: inactive, ...target };
+      return { tabs, activeTabId: nextId, _inactive: inactive, viewKey: s.viewKey + 1, ...target };
     }),
 
   _hydrate: ({ tabs, activeTabId, inactive, active }) =>
-    set({ tabs, activeTabId, _inactive: inactive, ...active, hydrated: true }),
+    set((s) => ({ tabs, activeTabId, _inactive: inactive, ...active, hydrated: true, viewKey: s.viewKey + 1 })),
 
   _renameTabs: (renames) =>
     set((s) => ({

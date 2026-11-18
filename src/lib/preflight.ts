@@ -14,6 +14,7 @@ export type IssueLevel = 'warn' | 'info';
 export type IssueAction =
   | { kind: 'makeDecision'; stepId: string }
   | { kind: 'goto'; stepId: string }
+  | { kind: 'title' }
   | { kind: 'table' };
 
 export interface Issue {
@@ -49,6 +50,9 @@ const FORM_FIELDS: (keyof StepFields)[] = [
 /** Steps that get a row in the บฟ. table — the round shapes don't. */
 const isFormStep = (s: Step) => s.type === 'process' || s.type === 'decision';
 
+/** ชื่อตั้งต้นของงานใหม่ (ดู templates.ts → blank) */
+const DEFAULT_TITLE = 'ชื่อกระบวนการ';
+
 const name = (s: Step, i: number) => `ข้อ ${i + 1} “${(s.label || '(ยังไม่มีชื่อ)').trim()}”`;
 
 export function checkProcess(proc: Process): Issue[] {
@@ -58,6 +62,17 @@ export function checkProcess(proc: Process): Issue[] {
 
   if (steps.length === 0) {
     return [{ id: 'empty', level: 'warn', text: 'ยังไม่มีขั้นตอนเลย — ไฟล์ที่ได้จะเป็นฟอร์มเปล่า' }];
+  }
+
+  // ชื่อกระบวนการไปเป็นหัวแถวแรกของชีตและชื่อไฟล์ — ลืมตั้งแล้วได้ไฟล์ชื่อ "ชื่อกระบวนการ.xlsx"
+  const t = (proc.title ?? '').trim();
+  if (!t || t === DEFAULT_TITLE) {
+    warns.push({
+      id: 'title',
+      level: 'warn',
+      text: 'ยังไม่ได้ตั้งชื่อกระบวนการ — หัวตารางและชื่อไฟล์จะเป็น “ชื่อกระบวนการ”',
+      action: { kind: 'title' },
+    });
   }
 
   const byId = new Map(steps.map((s) => [s.id, s]));

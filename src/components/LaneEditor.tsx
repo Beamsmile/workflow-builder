@@ -1,6 +1,8 @@
 import { useStore } from '../store';
 import type { MetaField } from '../domain/types';
 import { ChevronDown, ChevronUp, Plus, X } from './icons';
+import { showToast } from '../lib/toast';
+import { undo } from '../lib/history';
 
 const META_FIELDS: { value: MetaField; label: string }[] = [
   { value: 'duration', label: 'กรอบระยะเวลา' },
@@ -49,7 +51,14 @@ export default function LaneEditor() {
                 className="icon-btn danger"
                 title="ลบเลน"
                 disabled={lanes.length <= 1}
-                onClick={() => removeLane(lane.id)}
+                onClick={() => {
+                  const before = lanes.length;
+                  removeLane(lane.id);
+                  // เลนกระบวนการเลนสุดท้ายลบไม่ได้ (store ไม่ยอม) — ไม่ต้องแจ้งว่าลบแล้ว
+                  if (useStore.getState().lanes.length === before) return;
+                  // ขั้นในเลนนี้ถูกย้ายไปเลนแรก — บอกให้รู้ และเอาคืนได้
+                  showToast(`ลบเลน “${lane.label}” แล้ว (ขั้นในเลนนี้ย้ายไปเลนแรก)`, { label: 'ย้อนกลับ', run: undo });
+                }}
               >
                 <X width={11} height={11} />
               </button>

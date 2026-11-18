@@ -1,7 +1,7 @@
 import { forwardRef } from 'react';
 import type { DiagramLayout, LaidBox, LaidLane } from '../domain/layout';
 import { BOX, COLORS, LABEL_WEIGHT, META, ORG_TAG } from '../domain/theme';
-import { wrapLabel } from '../domain/text';
+import { edgeLabelWidth, wrapLabel } from '../domain/text';
 
 /**
  * Pure SVG renderer. Everything it draws comes from `layout` (computed by
@@ -104,28 +104,15 @@ const Diagram = forwardRef<SVGSVGElement, {
         </text>
       ))}
 
-      {/* edges */}
+      {/* edges — วาดเส้นทั้งหมดก่อน แล้วค่อยวาดป้าย ป้ายจึงไม่ถูกเส้นอื่นทับ */}
       {edges.map((e) => (
-        <g key={e.id}>
-          <path d={e.path} fill="none" stroke={COLORS.edge} strokeWidth={1.6} markerEnd="url(#arrow)" />
-          {e.label && (
-            <text
-              x={e.labelX}
-              y={e.labelY}
-              textAnchor={e.labelAnchor}
-              dominantBaseline="central"
-              fontSize={11.5}
-              fontWeight={700}
-              fill={COLORS.nodeText}
-              stroke="#ffffff"
-              strokeWidth={3.6}
-              style={{ paintOrder: 'stroke' }}
-            >
-              {e.label}
-            </text>
-          )}
-        </g>
+        <path key={e.id} d={e.path} fill="none" stroke={COLORS.edge} strokeWidth={1.6} markerEnd="url(#arrow)" />
       ))}
+      {edges.map((e) =>
+        e.label && e.labelX !== undefined && e.labelY !== undefined ? (
+          <EdgeLabel key={`l-${e.id}`} x={e.labelX} y={e.labelY} text={e.label} />
+        ) : null,
+      )}
 
       {/* nodes */}
       {boxes.map((b) => (
@@ -136,6 +123,22 @@ const Diagram = forwardRef<SVGSVGElement, {
 });
 
 export default Diagram;
+
+/**
+ * ป้ายกิ่ง ("ซ่อมได้") แบบผังตัวอย่าง: พื้นขาววางทับบนเส้นของตัวเอง
+ * เส้นจึงดูเหมือนขาดตรงป้าย และอ่านออกว่าป้ายเป็นของเส้นไหน
+ */
+function EdgeLabel({ x, y, text }: { x: number; y: number; text: string }) {
+  const w = edgeLabelWidth(text);
+  return (
+    <g>
+      <rect x={x - w / 2} y={y - 10} width={w} height={20} rx={10} fill="#ffffff" stroke={COLORS.laneBorder} />
+      <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={11.5} fontWeight={700} fill={COLORS.nodeText}>
+        {text}
+      </text>
+    </g>
+  );
+}
 
 /** Shorten a stood-up header label to whatever fits the header's height. */
 function clipToHeight(label: string, px: number): string {
@@ -189,19 +192,20 @@ function Node({ box, selected, onSelect }: { box: LaidBox; selected: boolean; on
         {selected && <circle cx={cx} cy={cy} r={w / 2 + 5} fill="none" stroke={ring} strokeWidth={2} strokeDasharray="4 3" />}
         <circle cx={cx} cy={cy} r={w / 2} fill={COLORS.startEnd} stroke={COLORS.startEndBorder} strokeWidth={2} />
         <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700} fill={COLORS.startEndText}>
-          {step.type === 'start' ? 'เริ่ม' : 'จบ'}
+          {step.type === 'start' ? 'Start' : 'End'}
         </text>
       </g>
     );
   }
 
   if (step.type === 'connector') {
+    // ป้ายสั้นเป็นวงกลม ป้ายยาว ("C8.1.6") กว้างขึ้นเป็นวงรี — แสดงป้ายครบทุกตัว
     return (
       <g {...click}>
-        {selected && <circle cx={cx} cy={cy} r={w / 2 + 5} fill="none" stroke={ring} strokeWidth={2} strokeDasharray="4 3" />}
-        <circle cx={cx} cy={cy} r={w / 2} fill={COLORS.connector} stroke={COLORS.connectorBorder} strokeWidth={2} />
+        {selected && <ellipse cx={cx} cy={cy} rx={w / 2 + 5} ry={h / 2 + 5} fill="none" stroke={ring} strokeWidth={2} strokeDasharray="4 3" />}
+        <ellipse cx={cx} cy={cy} rx={w / 2} ry={h / 2} fill={COLORS.connector} stroke={COLORS.connectorBorder} strokeWidth={2} />
         <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight={700} fill={COLORS.nodeText}>
-          {(step.label || 'A').slice(0, 2)}
+          {step.label || 'A'}
         </text>
       </g>
     );

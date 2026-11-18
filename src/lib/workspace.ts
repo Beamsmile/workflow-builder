@@ -69,7 +69,7 @@ export async function hydrateWorkspace(): Promise<void> {
     // nothing saved yet — keep the store's default single blank tab
     const s = useStore.getState();
     fileOf.set(s.activeTabId, s.tabs[0].name);
-    useStore.setState({ hydrated: true });
+    useStore.setState((st) => ({ hydrated: true, viewKey: st.viewKey + 1 }));
     return;
   }
 
@@ -113,11 +113,11 @@ async function flush(): Promise<void> {
   const snapFor = (t: TabMeta): DocSnap | undefined =>
     t.id === s.activeTabId ? snapshot(s) : s._inactive[t.id];
 
-  // 1. delete files for tabs that were closed
+  // 1. tabs that were closed → their files go to the trash (recoverable), not deleted
   const live = new Set(s.tabs.map((t) => t.id));
   for (const [id, name] of [...fileOf]) {
     if (!live.has(id)) {
-      await deleteDoc(name);
+      await deleteDoc(name, true);
       fileOf.delete(id);
     }
   }

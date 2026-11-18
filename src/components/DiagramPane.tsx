@@ -24,6 +24,7 @@ export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElemen
   const steps = useStore((s) => s.steps);
   const selectedStepId = useStore((s) => s.selectedStepId);
   const selectStep = useStore((s) => s.selectStep);
+  const viewKey = useStore((s) => s.viewKey);
 
   // Most flows fill in one or two of the four side columns; the rest were just
   // empty stripes taking up half the picture. Squeeze them unless asked not to.
@@ -72,12 +73,17 @@ export default function DiagramPane({ svgRef }: { svgRef: RefObject<SVGSVGElemen
     setView({ scale, tx: slack > 160 ? Math.min(slack / 2, 120) : 24, ty: 16 });
   }, [layout.width, layout.height]);
 
-  // fit once when first laid out
+  // จัดให้พอดีจอทุกครั้งที่แสดงงานชิ้นใหม่ (เปิดแอป โหลดงานที่บันทึกไว้ สลับ/เปิด/ปิดแท็บ)
+  // เดิมจัดครั้งเดียวตอนผังว่างก่อนโหลดงาน งานจริงจึงค้างซูมผิด และเปลี่ยนแท็บแล้วอาจเห็นแต่พื้นที่ว่าง
+  // แก้งานในแท็บเดิม (viewKey ไม่เปลี่ยน) ไม่จัดใหม่ ซูม/ตำแหน่งที่ผู้ใช้ตั้งไว้จึงไม่กระโดด
+  const fittedKey = useRef<number | null>(null);
   useLayoutEffect(() => {
-    if (fittedRef.current) return;
+    if (fittedKey.current === viewKey) return;
+    fittedKey.current = viewKey;
     fittedRef.current = true;
+    revealedRef.current = null;
     fit();
-  }, [fit]);
+  }, [fit, viewKey]);
 
   // Bring the selected step into view — the diagram follows the editor, so you
   // never edit a step on the left while looking at a different part of the flow.

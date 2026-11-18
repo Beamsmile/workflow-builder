@@ -8,7 +8,7 @@ import path from 'node:path';
  *
  *   GET    /api/workflows          → [{ name, process }]  (every workflows/*.flow.json)
  *   PUT    /api/workflows/<name>   → write workflows/<name>.flow.json
- *   DELETE /api/workflows/<name>   → remove it
+ *   DELETE /api/workflows/<name>   → remove it (?trash=1 → move to workflows/.trash/ instead)
  *
  * Only runs under `vite dev`. In a built/deployed site the endpoint is absent
  * and the app falls back to localStorage (see src/lib/storage.ts).
@@ -57,7 +57,19 @@ function workflowsApi(): Plugin {
           }
 
           if (req.method === 'DELETE' && rel) {
-            await fs.rm(path.join(dir, `${safe(rel)}.flow.json`), { force: true });
+            const file = path.join(dir, `${safe(rel)}.flow.json`);
+            // ปิดแท็บ = ย้ายไฟล์ไปถังขยะพร้อมวันเวลา ไม่ลบถาวร (กดปิดผิดยังกู้คืนได้)
+            if ((req.url ?? '').includes('trash=1')) {
+              const bin = path.join(dir, '.trash');
+              await fs.mkdir(bin, { recursive: true });
+              // เวลาท้องถิ่น (toISOString เป็นเวลา UTC — ช้ากว่าเวลาไทย 7 ชั่วโมง ชวนงงตอนหาไฟล์)
+              const d = new Date();
+              const p = (n: number) => String(n).padStart(2, '0');
+              const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}.${p(d.getMinutes())}.${p(d.getSeconds())}`;
+              await fs.rename(file, path.join(bin, `${safe(rel)} (${stamp}).flow.json`)).catch(() => {});
+            } else {
+              await fs.rm(file, { force: true });
+            }
             return send(res, 200, { ok: true });
           }
 
