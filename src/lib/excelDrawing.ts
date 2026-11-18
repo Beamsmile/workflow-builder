@@ -4,7 +4,7 @@
  * วาดผังเป็น "รูปทรงของ Excel จริง" ในคอลัมน์ผังการไหล (I = Application, J เป็นต้นไป = เลนละคอลัมน์) ให้แก้ต่อใน Excel ได้
  * โดยยึดแบบจากผังตัวอย่างของทีม (`ตัวอย่าง Flow/(Workshop) Maintenance V.4.xlsx`):
  *   - กล่องขนาดเท่ากันทุกกล่อง (สี่เหลี่ยม 187×107px, ข้าวหลามตัด ~221px, วงรี Start/End 68×46px)
- *     พื้นขาว ขอบดำ 1pt ตัวอักษร TH SarabunPSK 11pt
+ *     พื้นขาว ขอบดำ 1pt ตัวอักษร TH SarabunPSK 16pt (ผู้ใช้ขอ 18 พ.ย. 2569 — ผังตัวอย่างใช้ 11pt)
  *   - Application = ทรงกระบอก (can) ในคอลัมน์ I ต่อกับกล่องด้วยเส้นประสีเขียว
  *   - **เส้นเชื่อมเป็นเส้นเดียวที่เลี้ยวได้ (elbow connector) และเกาะกับกล่อง**
  *     (stCxn / endCxn) — ลากกล่องใน Excel แล้วเส้นตามไปเอง ไม่ใช่เส้นตรงหลายท่อนต่อกัน
@@ -46,17 +46,23 @@ const PROC_MIN_H = 107;
 const DEC_W = 221;
 const DEC_MIN_H = 170;
 const DEC_MAX_W = 400;
+// วงรีขนาดเท่าผังตัวอย่าง — ข้อความในวงรีตั้งไม่ให้ตัดบรรทัด (wrap none) "Start" 16pt จึงไม่ขึ้นบรรทัดใหม่
 const OVAL_W = 68;
 const OVAL_H = 46;
-const CAN_W = 123;
+// ทรงกระบอก Application: กว้างกว่าผังตัวอย่าง (123) เพราะตัวหนังสือ 16pt — ชื่อระบบภาษาอังกฤษยาว ๆ
+// เช่น "Configuration" จะได้ไม่ถูกตัดหลายบรรทัด
+const CAN_W = 150;
 const CAN_MIN_H = 68;
-/** TH SarabunPSK 11pt: ประมาณตัวอักษรต่อบรรทัดในกล่อง และความสูงบรรทัด (ใช้กะความสูงกล่องเท่านั้น
- *  การตัดบรรทัดจริงให้ Excel ทำเอง ซึ่งตัดคำไทยได้ถูกกว่า) */
-const PROC_CHARS = 24;
+/** ขนาดตัวหนังสือในรูปทรงทุกแบบ (pt) — ผู้ใช้ขอ 16 (18 พ.ย. 2569) */
+const SHAPE_PT = 16;
+/** TH SarabunPSK 16pt: ประมาณตัวอักษรต่อบรรทัดในกล่อง และความสูงบรรทัด (ใช้กะความสูงกล่องเท่านั้น
+ *  การตัดบรรทัดจริงให้ Excel ทำเอง ซึ่งตัดคำไทยได้ถูกกว่า) — ถ้าเปลี่ยน SHAPE_PT ต้องปรับชุดนี้ตาม
+ *  วัดจาก Excel จริง: TH Sarabun 16pt กว้างราว 6.6px ต่อตัวอักษร (นับสระ/วรรณยุกต์ด้วย) บรรทัดละ ~25px
+ *  ใช้ 7.5px/ตัว เผื่อไว้ — กล่อง 187px (ข้อความได้ ~175px) ≈ 23 ตัว, ข้าวหลามตัด 221px (ข้อความอยู่ครึ่งกลาง) ≈ 13 ตัว */
+const PROC_CHARS = 23;
 const DEC_CHARS = 13;
-const CAN_CHARS = 15;
-const LINE_11 = 19;
-const LINE_12 = 20;
+const CAN_CHARS = 17;
+const LINE_H = 26;
 
 // ---- ระยะในคอลัมน์ผัง (px) ----
 const TRACK_PAD = 14; // เว้นข้างกล่องในราง
@@ -260,7 +266,7 @@ function shapeOf(step: Step): { prst: 'rect' | 'diamond' | 'ellipse'; w: number;
   if (step.type === 'start' || step.type === 'end') return { prst: 'ellipse', w: OVAL_W, h: OVAL_H };
   // จุดเชื่อม: ป้ายสั้นเป็นวงกลม ป้ายยาว ("C8.1.6") ยืดเป็นวงรีให้ป้ายอยู่ในบรรทัดเดียว
   if (step.type === 'connector')
-    return { prst: 'ellipse', w: Math.max(OVAL_H, Math.round(t.main.replace(/[ัิ-ฺ็-๎]/g, '').length * 7 + 30)), h: OVAL_H };
+    return { prst: 'ellipse', w: Math.max(OVAL_H, Math.round(t.main.replace(/[ัิ-ฺ็-๎]/g, '').length * 9 + 30)), h: OVAL_H };
   if (step.type === 'decision') {
     // ข้อความอยู่ได้แค่ราวครึ่งกลางของข้าวหลามตัด จึงต้องสูงราว 2 เท่าของข้อความ
     // ข้อความยาว: ขยายความกว้างก่อน (ผู้ใช้เลือก 18 พ.ย. 2569) ให้ทรงยังใกล้จัตุรัสแบบผังตัวอย่าง
@@ -268,14 +274,14 @@ function shapeOf(step: Step): { prst: 'rect' | 'diamond' | 'ellipse'; w: number;
     const sizeAt = (w: number) => {
       const chars = Math.floor((DEC_CHARS * w) / DEC_W);
       const n = wrapLabel(t.main, chars).length + (t.sub ? wrapLabel(t.sub, chars).length : 0);
-      return Math.max(DEC_MIN_H, n * LINE_11 * 2 + 40);
+      return Math.max(DEC_MIN_H, n * LINE_H * 2 + 40);
     };
     let w = DEC_W;
     while (w < DEC_MAX_W && sizeAt(w) > w) w = Math.min(DEC_MAX_W, w + 20);
     return { prst: 'diamond', w, h: sizeAt(w) };
   }
   const n = wrapLabel(t.main, PROC_CHARS).length;
-  return { prst: 'rect', w: PROC_W, h: Math.max(PROC_MIN_H, n * LINE_11 + 30) };
+  return { prst: 'rect', w: PROC_W, h: Math.max(PROC_MIN_H, n * LINE_H + 30) };
 }
 
 /** ป้ายของเส้น i→j = ป้ายของทุกกิ่งจากขั้น i ที่ไปขั้น j */
@@ -493,7 +499,7 @@ export function computeExcelDiagram(proc: Process): ExcelDiagram {
   const para = (runs: string) => `<a:p><a:pPr algn="ctr"/>${runs}</a:p>`;
 
   /** รูปทรงพื้นขาวขอบดำ — ข้อความเป็นย่อหน้าเดียว ให้ Excel ตัดบรรทัดเอง (ตัดคำไทยถูกกว่าเราตัด) */
-  const shape = (r: Rect, prst: string, name: string, paras: string): number => {
+  const shape = (r: Rect, prst: string, name: string, paras: string, wrap: 'square' | 'none' = 'square'): number => {
     const id = nextId++;
     anchor(
       r,
@@ -501,7 +507,7 @@ export function computeExcelDiagram(proc: Process): ExcelDiagram {
         `<xdr:spPr><a:xfrm><a:off x="${emu(r.x)}" y="${emu(r.y)}"/><a:ext cx="${emu(r.w)}" cy="${emu(r.h)}"/></a:xfrm>` +
         `<a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>` +
         `<a:ln w="12700"><a:solidFill><a:srgbClr val="${BLACK}"/></a:solidFill></a:ln></xdr:spPr>` +
-        `<xdr:txBody><a:bodyPr vertOverflow="overflow" horzOverflow="overflow" wrap="square" lIns="45720" tIns="27432" rIns="45720" bIns="27432" rtlCol="0" anchor="ctr"/>` +
+        `<xdr:txBody><a:bodyPr vertOverflow="overflow" horzOverflow="overflow" wrap="${wrap}" lIns="45720" tIns="27432" rIns="45720" bIns="27432" rtlCol="0" anchor="ctr"/>` +
         `<a:lstStyle/>${paras}</xdr:txBody></xdr:sp>`,
     );
     return id;
@@ -579,10 +585,10 @@ export function computeExcelDiagram(proc: Process): ExcelDiagram {
     const t = shapeText(s);
     const { prst } = shp[i];
     const paras =
-      para(run(t.main, s.type === 'start' || s.type === 'end' ? 12 : 11, BLACK)) +
-      (t.sub ? para(run(`(${t.sub})`, 10, BLACK)) : '');
+      para(run(t.main, SHAPE_PT, BLACK)) + (t.sub ? para(run(`(${t.sub})`, SHAPE_PT, BLACK)) : '');
     const name = prst === 'diamond' ? 'Diamond' : prst === 'ellipse' ? 'Oval' : 'Rectangle';
-    return shape({ x: g.x, y: g.y, w: g.w, h: g.h }, prst, name, paras);
+    // วงรี (Start/End/จุดเชื่อม) ข้อความสั้น — ไม่ให้ Excel ตัดบรรทัด เพราะพื้นที่ข้อความในวงรีแคบกว่าตัววงรี
+    return shape({ x: g.x, y: g.y, w: g.w, h: g.h }, prst, name, paras, prst === 'ellipse' ? 'none' : 'square');
   });
   const site = (i: number, side: 'top' | 'left' | 'bottom' | 'right'): Glue => ({
     id: shapeId[i],
@@ -593,9 +599,9 @@ export function computeExcelDiagram(proc: Process): ExcelDiagram {
   dataIdx.forEach((i) => {
     const app = steps[i].application?.trim();
     if (!app) return;
-    const h = Math.max(CAN_MIN_H, wrapLabel(app, CAN_CHARS).length * LINE_12 + 34);
+    const h = Math.max(CAN_MIN_H, wrapLabel(app, CAN_CHARS).length * LINE_H + 46); // +46: ฝาวงรีด้านบนของทรงกระบอกกินที่ข้อความ
     const ax = colStart[8] + COL_PX[8] / 2;
-    const canId = shape({ x: ax - CAN_W / 2, y: geom[i].cy - h / 2, w: CAN_W, h }, 'can', 'Can', para(run(app, 12, BLACK)));
+    const canId = shape({ x: ax - CAN_W / 2, y: geom[i].cy - h / 2, w: CAN_W, h }, 'can', 'Can', para(run(app, SHAPE_PT, BLACK)));
     connector(
       'straight',
       [[geom[i].x, geom[i].cy], [ax + CAN_W / 2, geom[i].cy]],
