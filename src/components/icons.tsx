@@ -25,6 +25,19 @@ export const Plus = (p: SVGProps<SVGSVGElement>) => (
 export const Minus = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)} strokeWidth={2.4}><path d="M5 12h14" /></svg>
 );
+export const Grip = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)} fill="currentColor" stroke="none">
+    <circle cx="9" cy="6" r="1.7" /><circle cx="15" cy="6" r="1.7" />
+    <circle cx="9" cy="12" r="1.7" /><circle cx="15" cy="12" r="1.7" />
+    <circle cx="9" cy="18" r="1.7" /><circle cx="15" cy="18" r="1.7" />
+  </svg>
+);
+export const Undo = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M9 14L4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 010 11H11" /></svg>
+);
+export const Redo = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M15 14l5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 000 11H13" /></svg>
+);
 export const X = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)} strokeWidth={2.4}><path d="M6 6l12 12M18 6L6 18" /></svg>
 );

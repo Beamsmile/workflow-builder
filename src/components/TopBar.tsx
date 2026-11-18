@@ -8,7 +8,8 @@ import { onSaveState, getSaveState, type SaveState } from '../lib/workspace';
 import { checkProcess } from '../lib/preflight';
 import Menu from './Menu';
 import PreflightDialog from './PreflightDialog';
-import { BrandMark } from './icons';
+import { BrandMark, Redo, Undo } from './icons';
+import { redo, undo, useHistory } from '../lib/history';
 
 /** Quiet reassurance that nothing is lost — the app saves on its own. */
 function SaveIndicator() {
@@ -30,9 +31,9 @@ export default function TopBar({
 }) {
   const title = useStore((s) => s.title);
   const setTitle = useStore((s) => s.setTitle);
-  const loadTemplate = useStore((s) => s.loadTemplate);
-  const loadProcess = useStore((s) => s.loadProcess);
+  const openProcess = useStore((s) => s.openProcess);
   const toProcess = useStore((s) => s.toProcess);
+  const { canUndo, canRedo } = useHistory();
 
   const stem = () => safeFileStem(title);
 
@@ -58,6 +59,7 @@ export default function TopBar({
 
       <div className="topbar-title">
         <input
+          id="process-title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="ชื่อกระบวนการ…"
@@ -67,37 +69,42 @@ export default function TopBar({
 
       <div className="topbar-actions">
         <Menu label="เทมเพลต">
-          <div className="menu-label">แทนที่งานปัจจุบันทั้งหมด</div>
+          <div className="menu-label">เปิดเป็นแท็บใหม่ (งานเดิมยังอยู่)</div>
           {TEMPLATES.map((t) => (
-            <button
-              key={t.id}
-              className="menu-item"
-              onClick={() => {
-                if (confirm('โหลดเทมเพลตใหม่จะแทนที่งานปัจจุบันทั้งหมด ดำเนินการต่อ?')) {
-                  loadTemplate(t.id);
-                }
-              }}
-            >
+            <button key={t.id} className="menu-item" onClick={() => openProcess(t.build())}>
               {t.name}
             </button>
           ))}
         </Menu>
 
+        <div className="history-btns">
+          <button className="icon-btn" title="ย้อนกลับ (⌘Z)" aria-label="ย้อนกลับ" disabled={!canUndo} onClick={() => undo()}>
+            <Undo width={15} height={15} />
+          </button>
+          <button className="icon-btn" title="ทำซ้ำ (⌘⇧Z)" aria-label="ทำซ้ำ" disabled={!canRedo} onClick={() => redo()}>
+            <Redo width={15} height={15} />
+          </button>
+        </div>
+
         <SaveIndicator />
 
-        <button
-          className="menu-trigger"
-          onClick={async () => {
-            const p = await pickProcessFile();
-            if (p) loadProcess(p);
-          }}
-        >
-          เปิด
-        </button>
-
-        <button className="menu-trigger" onClick={() => downloadProcess(toProcess(), stem())}>
-          บันทึก
-        </button>
+        {/* เดิมเป็นปุ่ม "เปิด" กับ "บันทึก" — "บันทึก" ชวนเข้าใจว่าต้องกดถึงจะไม่หาย ทั้งที่งานบันทึก
+            อัตโนมัติอยู่แล้ว ปุ่มนั้นจริง ๆ คือดาวน์โหลดไฟล์ไว้สำรอง/ส่งต่อ จึงรวมเป็นเมนูและเรียกตามที่ทำ */}
+        <Menu label="ไฟล์งาน">
+          <div className="menu-label">งานบันทึกอัตโนมัติอยู่แล้ว — ใช้เมื่ออยากส่งต่อหรือสำรอง</div>
+          <button
+            className="menu-item"
+            onClick={async () => {
+              const p = await pickProcessFile();
+              if (p) openProcess(p);
+            }}
+          >
+            เปิดไฟล์งาน (.flow.json) เป็นแท็บใหม่…
+          </button>
+          <button className="menu-item" onClick={() => downloadProcess(toProcess(), stem())}>
+            ดาวน์โหลดไฟล์งาน (.flow.json)
+          </button>
+        </Menu>
 
         <Menu label="Export" primary>
           <div className="menu-label">รูปภาพ</div>

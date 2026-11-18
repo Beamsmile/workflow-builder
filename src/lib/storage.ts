@@ -15,6 +15,9 @@ import type { Process } from '../domain/types';
 const API = '/api/workflows';
 const DOCS_KEY = 'wf:docs';
 const UI_KEY = 'wf:ui';
+/** งานที่ปิดแท็บไป (โหมดไม่มีโฟลเดอร์) เก็บไว้ล่าสุด TRASH_KEEP งาน เผื่อกู้คืน */
+const TRASH_KEY = 'wf:trash';
+const TRASH_KEEP = 20;
 
 export interface StoredDoc {
   name: string;
@@ -52,9 +55,9 @@ async function filePut(name: string, process: Process): Promise<boolean> {
   }
 }
 
-async function fileDelete(name: string): Promise<boolean> {
+async function fileDelete(name: string, trash: boolean): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const res = await fetch(`${API}/${encodeURIComponent(name)}${trash ? '?trash=1' : ''}`, { method: 'DELETE' });
     return res.ok;
   } catch {
     return false;
@@ -102,10 +105,24 @@ export async function putDoc(name: string, process: Process): Promise<void> {
   localWrite(all);
 }
 
-export async function deleteDoc(name: string): Promise<void> {
-  if (mode === 'file' && (await fileDelete(name))) return;
+/**
+ * ลบงานออกจากที่เก็บ
+ * `trash` = ผู้ใช้ปิดแท็บ → ย้ายไปถังขยะ (workflows/.trash หรือ localStorage) ไม่ลบทิ้งถาวร
+ * ไม่ใส่ `trash` = แค่เปลี่ยนชื่อไฟล์ตามชื่อกระบวนการ (มีไฟล์ชื่อใหม่แล้ว) ลบชื่อเก่าได้เลย
+ */
+export async function deleteDoc(name: string, trash = false): Promise<void> {
+  if (mode === 'file' && (await fileDelete(name, trash))) return;
   const all = localAll();
   if (name in all) {
+    if (trash) {
+      try {
+        const bin = JSON.parse(localStorage.getItem(TRASH_KEY) ?? '[]') as unknown[];
+        bin.unshift({ name, at: new Date().toISOString(), process: all[name] });
+        localStorage.setItem(TRASH_KEY, JSON.stringify(bin.slice(0, TRASH_KEEP)));
+      } catch {
+        /* เต็ม / โหมดส่วนตัว — ข้ามไป */
+      }
+    }
     delete all[name];
     localWrite(all);
   }

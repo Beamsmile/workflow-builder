@@ -21,7 +21,7 @@ export default function Tabs() {
     id === activeTabId ? activeSteps : (inactive[id]?.steps.length ?? 0);
 
   const onClose = (id: string) => {
-    if (stepCountOf(id) > 0 && !confirm('ปิดแท็บนี้? ไฟล์ของงานนี้จะถูกลบด้วย')) return;
+    if (stepCountOf(id) > 0 && !confirm('ปิดแท็บนี้?\n\nไฟล์งานจะย้ายไปเก็บในโฟลเดอร์ workflows/.trash (ยังกู้คืนได้)')) return;
     closeTab(id);
   };
 

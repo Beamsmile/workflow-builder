@@ -47,6 +47,16 @@ export default function PreflightDialog({
       updateStep(a.stepId, { type: 'decision' });
       return; // stay open — the row disappears as the list recomputes
     }
+    if (a.kind === 'title') {
+      onClose();
+      // รอให้กล่องปิดก่อน แล้วพาเคอร์เซอร์ไปช่องชื่อกระบวนการพร้อมเลือกข้อความเดิม พิมพ์ทับได้ทันที
+      requestAnimationFrame(() => {
+        const el = document.getElementById('process-title') as HTMLInputElement | null;
+        el?.focus();
+        el?.select();
+      });
+      return;
+    }
     if (a.kind === 'goto') {
       selectStep(a.stepId);
       onClose();
@@ -62,6 +72,8 @@ export default function PreflightDialog({
         return 'แก้ให้เลย';
       case 'goto':
         return 'ไปที่ขั้นตอน';
+      case 'title':
+        return 'ตั้งชื่อ';
       case 'table':
         return 'เปิดมุมมองตาราง';
       default:

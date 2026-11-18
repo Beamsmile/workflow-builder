@@ -1,27 +1,24 @@
 /**
- * Layout engine — turns a `Process` (title + lanes + ordered steps) into
- * absolute geometry the SVG diagram can draw directly.
+ * Layout engine — แปลง `Process` เป็นตำแหน่งจริง (px) ให้ SVG วาดได้ทันที
  *
- * Rules:
- *   - columns  = lanes, left→right in list order
- *   - rows     = steps, top→bottom in list order; every row is as tall as its
- *                box needs (the label is wrapped here, never truncated unless it
- *                is really long), so nothing overlaps vertically
- *   - a step sits centred on its lane's "spine"
- *   - an edge goes from each step to its target(s):
- *       • no branches → the next step in the list
- *       • branches    → each branch's `toStepId` (with the branch label)
+ * งานแบ่งสองชั้น:
+ *   1. `route.ts` ตัดสินใจว่ากล่องไหนอยู่รางไหน และเส้นแต่ละเส้นเดินแบบไหน
+ *      (ทำบนตารางนามธรรม จึงใช้ร่วมกับ Excel ได้)
+ *   2. ไฟล์นี้ใส่ขนาดจริง: ความสูงแถวตามข้อความ, ความกว้างรางตามกล่อง,
+ *      ทางเดินกว้างตามจำนวนเส้นที่ต้องอ้อมผ่าน แล้วสร้าง path ของเส้นกับตำแหน่งป้าย
  *
- * Arrows never overlap horizontally: any edge that has to travel vertically
- * *past* a box is pushed into a routing CHANNEL on the right side of the lane,
- * and the lane widens by one channel-width per channel it needs (greedy
- * interval colouring). Empty, unused lanes shrink.
+ * กติกาที่เห็นในภาพ (ตามผังตัวอย่างของทีม):
+ *   - แถว = ลำดับขั้น (ตรงกับแถวในตาราง บฟ.)
+ *   - เส้นออกจากกึ่งกลางขอบล่าง เข้าที่กึ่งกลางขอบบน
+ *   - กิ่งแยกด้วยเส้นแนวนอนใต้กล่องต้นทาง ป้ายกิ่งอยู่บนเส้นตรงจุดแยก
+ *   - เส้นย้อนกลับออกด้านข้างกล่อง และเข้าด้านข้างกล่องปลายทาง
  *
  * Pure function — no React, easy to test and reuse from the exporter.
  */
-import type { Lane, Process, Step, StepType } from './types';
+import type { Lane, Process, Step } from './types';
 import { BOX, HEADER_HEIGHT, LAYOUT, META, ORG_TAG, ROUND_SIZE } from './theme';
-import { wrapLabel } from './text';
+import { connectorWidth, edgeLabelWidth, wrapLabel } from './text';
+import { planFlow, LANE_SPAN, type PlannedEdge } from './route';
 
 export interface LaidBox {
   step: Step;
@@ -52,14 +49,10 @@ export interface LaidLane {
   lane: Lane;
   x: number;
   w: number;
-  /** x of the box centre-line */
+  /** x ของรางกลาง (ราง 0) */
   spineX: number;
   /** geometric centre of the column (for the header label) */
   centerX: number;
-  /** box area width (grows for lanes with staggered boxes) */
-  contentW: number;
-  channelsL: number;
-  channelsR: number;
   /** a meta column with no data in any step, squeezed down to a thin strip */
   collapsed?: boolean;
 }
@@ -76,28 +69,6 @@ export interface DiagramLayout {
   boxes: LaidBox[];
   gutterMarks: { n: number; y: number }[];
   edges: LaidEdge[];
-}
-
-const LOOP = '__loop__';
-
-type EdgeKind = 'direct' | 'skip' | 'cross' | 'loop';
-type Side = 'L' | 'R';
-
-interface Plan {
-  fromIdx: number;
-  toIdx: number;
-  label?: string;
-  kind: EdgeKind;
-  outSlot: number;
-  outOf: number;
-  inSlot: number;
-  inOf: number;
-  yh?: number;
-  srcCh?: number;
-  srcSide?: Side;
-  tgtCh?: number;
-  tgtSide?: Side;
-  loopCh?: number;
 }
 
 interface Metrics {
@@ -123,45 +94,56 @@ function metaTextHeight(step: Step, metaLanes: Lane[]): number {
   return mh;
 }
 
+/** ข้าวหลามตัดบนเว็บกว้างได้สุดเท่านี้ (px) แล้วค่อยสูงต่อ */
+const DECISION_MAX_W = 360;
+
 function boxMetrics(step: Step, metaLanes: Lane[]): Metrics {
   const metaH = metaTextHeight(step, metaLanes);
 
   if (step.type === 'start' || step.type === 'end' || step.type === 'connector') {
     const s = ROUND_SIZE[step.type];
-    return {
-      w: s,
-      h: s,
-      contentH: Math.max(s, metaH),
-      lines: [],
-      orgLines: [],
-      orgW: 0,
-      orgH: 0,
-    };
+    // จุดเชื่อมที่ป้ายยาว (เช่น "C8.1.6") ยืดเป็นวงรีให้เห็นป้ายครบ — สูงเท่าเดิม
+    const w = step.type === 'connector' ? connectorWidth(step.label, s) : s;
+    return { w, h: s, contentH: Math.max(s, metaH), lines: [], orgLines: [], orgW: 0, orgH: 0 };
   }
   const cfg = BOX[step.type];
   const fallback = step.type === 'decision' ? 'จุดตัดสินใจ' : 'ขั้นตอน';
-  const lines = wrapLabel(step.label || fallback, cfg.maxChars);
   const lh = cfg.fontSize + 4;
-  const textH = Math.ceil(lines.length * lh);
   // decision: the rhombus tapers, so the text block must sit inside its middle
   // ~55% — give the diamond ~1.9× the text height (plus a floor)
-  const h =
-    step.type === 'decision'
-      ? Math.max(108, Math.round(textH * 1.9) + 40)
-      : Math.max(58, textH + 22);
+  const sizeAt = (w: number) => {
+    const chars = Math.floor((cfg.maxChars * w) / cfg.width);
+    const lines = wrapLabel(step.label || fallback, chars);
+    const textH = Math.ceil(lines.length * lh);
+    const h =
+      step.type === 'decision'
+        ? Math.max(108, Math.round(textH * 1.9) + 40)
+        : Math.max(58, textH + 22);
+    return { lines, h };
+  };
+  // ข้าวหลามตัดข้อความยาว: ขยายความกว้างก่อน (เหมือนใน Excel — ผู้ใช้เลือก 18 พ.ย. 2569)
+  // ไม่ให้สูงชะลูด — กว้างขึ้นทีละ 20px จนสูงไม่เกิน 80% ของความกว้าง (กว้างสุด DECISION_MAX_W)
+  let w = cfg.width;
+  let { lines, h } = sizeAt(w);
+  if (step.type === 'decision') {
+    while (w < DECISION_MAX_W && h > w * 0.8) {
+      w = Math.min(DECISION_MAX_W, w + 20);
+      ({ lines, h } = sizeAt(w));
+    }
+  }
 
   const orgLines = step.mainUnit ? wrapLabel(step.mainUnit, ORG_TAG.maxChars) : [];
   const orgH = orgLines.length ? orgLines.length * (ORG_TAG.fontSize + 3) + 9 : 0;
   const longest = orgLines.reduce((mx, l) => Math.max(mx, l.length), 0);
   const orgW = orgLines.length
-    ? Math.min(cfg.width + 12, Math.max(56, longest * 5.6 + 16))
+    ? Math.min(w + 12, Math.max(56, longest * 5.6 + 16))
     : 0;
 
-  return { w: cfg.width, h, contentH: Math.max(h, metaH), lines, orgLines, orgW, orgH };
+  return { w, h, contentH: Math.max(h, metaH), lines, orgLines, orgW, orgH };
 }
 
 /** Greedy interval colouring — returns a channel index per input interval. */
-function colourIntervals(items: { y1: number; y2: number }[]): number[] {
+export function colourIntervals(items: { y1: number; y2: number }[]): number[] {
   const order = items
     .map((_, i) => i)
     .sort((a, b) => items[a].y1 - items[b].y1 || items[a].y2 - items[b].y2);
@@ -182,6 +164,14 @@ function colourIntervals(items: { y1: number; y2: number }[]): number[] {
   return out;
 }
 
+/** ป้ายของเส้น i→j = ป้ายของทุกกิ่งจากขั้น i ที่ไปขั้น j (ปกติมีกิ่งเดียว) */
+function edgeLabel(from: Step, to: Step): string | undefined {
+  const labels = (from.branches ?? [])
+    .filter((b) => b.toStepId === to.id && b.label.trim())
+    .map((b) => b.label.trim());
+  return labels.length ? labels.join(' / ') : undefined;
+}
+
 /** Knobs the viewer can turn that change the picture but never the data. */
 export interface LayoutOptions {
   /** squeeze meta columns nobody filled in down to a thin labelled strip */
@@ -191,7 +181,6 @@ export interface LayoutOptions {
 export function computeLayout(proc: Process, opts: LayoutOptions = {}): DiagramLayout {
   const steps = proc.steps;
   const N = steps.length;
-  const indexById = new Map(steps.map((s, i) => [s.id, i]));
 
   const metaLanes = proc.lanes.filter((l) => l.kind === 'meta');
   /** a meta column is empty when not one step has anything in its field */
@@ -201,232 +190,127 @@ export function computeLayout(proc: Process, opts: LayoutOptions = {}): DiagramL
   // a collapsed column shows no text, so it must not stretch the rows either
   const shownMetaLanes = metaLanes.filter((l) => !isCollapsed(l));
 
-  // ---------- 1. box metrics + row positions ----------
+  // ---------- 1. แผนราง + เส้น (นามธรรม) ----------
+  const plan = planFlow(proc);
+  const labels = plan.edges.map((e) => edgeLabel(steps[e.from], steps[e.to]));
+  // ขั้นที่มีป้ายกิ่งห้อยอยู่ใต้กล่อง ต้องเว้นแถวเพิ่มให้ป้ายไม่ชนกล่องถัดไป
+  const hasLabelBelow = new Array(N).fill(false);
+  plan.edges.forEach((e, k) => {
+    if (labels[k] && e.kind !== 'loop') hasLabelBelow[e.from] = true;
+  });
+
+  // ---------- 2. ความสูงแถว ----------
   const m = steps.map((s) => boxMetrics(s, shownMetaLanes));
   const rowCy: number[] = [];
   let cursor = HEADER_HEIGHT + LAYOUT.rowTop;
   for (let i = 0; i < N; i++) {
     rowCy[i] = cursor + m[i].contentH / 2;
-    cursor += m[i].contentH + m[i].orgH + LAYOUT.rowVGap;
+    cursor +=
+      m[i].contentH + m[i].orgH + LAYOUT.rowVGap + (hasLabelBelow[i] ? LAYOUT.labelRowExtra : 0);
   }
   const height = (N ? cursor - LAYOUT.rowVGap : cursor) + LAYOUT.rowBottom;
 
   const boxTop = (i: number) => rowCy[i] - m[i].h / 2;
   const boxBot = (i: number) => rowCy[i] + m[i].h / 2;
+  /** ใต้ป้ายหน่วยงานสีแดง — เส้นแยก/ป้ายกิ่งต้องอยู่ต่ำกว่านี้ */
+  const blockBot = (i: number) => boxBot(i) + (m[i].orgH ? m[i].orgH + 3 : 0);
+  const outY = (i: number) => blockBot(i) + LAYOUT.busGap;
+  const inY = (j: number) => boxTop(j) - LAYOUT.busGap;
 
-  // ---------- 1b. horizontal stagger + which side each branch routes on ----------
-  // A decision's nearest same-lane target keeps the spine; every extra same-lane
-  // target is a "side excursion" — it is nudged left/right, and its incoming edge
-  // is routed on that same side so nothing runs over the main flow.
-  const laneIndex = new Map(proc.lanes.map((l, i) => [l.id, i]));
-  const staggerDir = new Map<number, -1 | 1>(); // box index → direction
-  const branchSide = new Map<string, Side>(); // "from->to" → side its edge routes
-  steps.forEach((s, i) => {
-    const tg = (s.branches ?? [])
-      .map((b) => (b.toStepId && indexById.has(b.toStepId) ? (indexById.get(b.toStepId) as number) : -1))
-      .filter((t) => t > i && steps[t].laneId === s.laneId)
-      .sort((a, b) => a - b);
-    tg.forEach((t, k) => {
-      if (k === 0) {
-        branchSide.set(`${i}->${t}`, 'R'); // primary keeps the spine
-        return;
-      }
-      const side: Side = k % 2 === 1 ? 'L' : 'R';
-      branchSide.set(`${i}->${t}`, side);
-      staggerDir.set(t, side === 'L' ? -1 : 1);
-    });
+  // ---------- 3. ทางเดิน: แบ่งช่องให้เส้นที่อ้อมผ่านทางเดินเดียวกัน ----------
+  const corridorRuns = new Map<number, { k: number; y1: number; y2: number }[]>();
+  plan.edges.forEach((e, k) => {
+    if (e.corridorX === undefined) return;
+    const run =
+      e.kind === 'loop'
+        ? { k, y1: rowCy[e.to], y2: rowCy[e.from] }
+        : { k, y1: outY(e.from), y2: inY(e.to) };
+    const list = corridorRuns.get(e.corridorX) ?? [];
+    list.push(run);
+    corridorRuns.set(e.corridorX, list);
+  });
+  const channelOf = new Map<number, number>(); // edge index → ช่อง
+  const channelCount = new Map<number, number>(); // corridorX → จำนวนช่อง
+  for (const [cx, list] of corridorRuns) {
+    const idx = colourIntervals(list);
+    idx.forEach((c, n) => channelOf.set(list[n].k, c));
+    channelCount.set(cx, Math.max(...idx) + 1);
+  }
+
+  // ---------- 4. ความกว้างเลน / ราง / ทางเดิน ----------
+  const orgLanes = proc.lanes.filter((l) => l.kind === 'org');
+  const orgIndex = new Map(orgLanes.map((l, k) => [l.id, k]));
+  /** กล่องที่กว้างที่สุดในแต่ละราง — "เลน:ราง" → px */
+  const trackBoxW = new Map<string, number>();
+  const range = new Map<number, { lo: number; hi: number }>();
+  steps.forEach((_, i) => {
+    const k = plan.lane[i];
+    const t = plan.track[i];
+    const key = `${k}:${t}`;
+    trackBoxW.set(key, Math.max(trackBoxW.get(key) ?? 0, m[i].w, m[i].orgW));
+    const r = range.get(k) ?? { lo: t, hi: t };
+    range.set(k, { lo: Math.min(r.lo, t), hi: Math.max(r.hi, t) });
   });
 
-  // ---------- 2. edge plans ----------
-  const plans: Plan[] = [];
-  const outCount = new Array(N).fill(0);
-  const inCount = new Array(N).fill(0);
-
-  steps.forEach((s, i) => {
-    // Edges are ONLY drawn from explicit "เส้นทางออก" entries — nothing is
-    // auto-connected to the next step.
-    const branches = (s.branches ?? []).filter(
-      (b) => b.toStepId && indexById.has(b.toStepId),
-    );
-    const targets: { toIdx: number; label?: string }[] = branches.map((b) => ({
-      toIdx: indexById.get(b.toStepId as string) as number,
-      label: b.label || undefined,
-    }));
-
-    for (const t of targets) {
-      if (t.toIdx === i) continue;
-      const from = steps[i];
-      const to = steps[t.toIdx];
-      const sameLane = from.laneId === to.laneId;
-      let kind: EdgeKind;
-      if (t.toIdx <= i) kind = 'loop';
-      else if (sameLane && t.toIdx === i + 1) kind = 'direct';
-      else if (sameLane) kind = 'skip';
-      else kind = 'cross';
-      plans.push({
-        fromIdx: i,
-        toIdx: t.toIdx,
-        label: t.label,
-        kind,
-        outSlot: outCount[i]++,
-        outOf: 0,
-        inSlot: inCount[t.toIdx]++,
-        inOf: 0,
-      });
-    }
-  });
-  for (const p of plans) {
-    p.outOf = outCount[p.fromIdx];
-    p.inOf = inCount[p.toIdx];
-  }
-
-  // ---------- 3. vertical runs that need a channel ----------
-  // Channels sit on BOTH sides of a lane. `key` = "<laneId>:L" | "<laneId>:R" | LOOP.
-  const CROSS_THRESHOLD = 50;
-  interface RunRef {
-    key: string;
-    y1: number;
-    y2: number;
-    plan: Plan;
-    slot: 'skip' | 'src' | 'tgt' | 'loop';
-  }
-  const runs: RunRef[] = [];
-  const laneIdxOf = (id: string) => laneIndex.get(id) ?? 0;
-  const skipCount = new Map<string, number>(); // per-lane counter to alternate sides
-
-  for (const p of plans) {
-    const from = steps[p.fromIdx];
-    const to = steps[p.toIdx];
-    const fb = boxBot(p.fromIdx);
-    const tt = boxTop(p.toIdx);
-
-    if (p.kind === 'skip') {
-      let side = branchSide.get(`${p.fromIdx}->${p.toIdx}`);
-      if (!side) {
-        const n = skipCount.get(from.laneId) ?? 0;
-        side = n % 2 === 0 ? 'R' : 'L';
-        skipCount.set(from.laneId, n + 1);
-      }
-      p.srcSide = side;
-      runs.push({ key: `${from.laneId}:${side}`, y1: fb, y2: tt, plan: p, slot: 'skip' });
-    } else if (p.kind === 'cross') {
-      let yh = fb + 18 + p.outSlot * 15;
-      if (yh > tt - 12) yh = (fb + tt) / 2;
-      p.yh = yh;
-      const targetIsRight = laneIdxOf(to.laneId) > laneIdxOf(from.laneId);
-      if (tt - yh > CROSS_THRESHOLD) {
-        // vertical run in the target lane, on the side the horizontal arrives from
-        p.tgtSide = targetIsRight ? 'L' : 'R';
-        runs.push({ key: `${to.laneId}:${p.tgtSide}`, y1: yh, y2: tt, plan: p, slot: 'tgt' });
-      }
-      if (yh - fb > CROSS_THRESHOLD) {
-        p.srcSide = targetIsRight ? 'R' : 'L';
-        runs.push({ key: `${from.laneId}:${p.srcSide}`, y1: fb, y2: yh, plan: p, slot: 'src' });
-      }
-    } else if (p.kind === 'loop') {
-      runs.push({ key: LOOP, y1: tt - 14, y2: fb + 14, plan: p, slot: 'loop' });
-    }
-  }
-
-  // ---------- 4. colour channels per (lane, side) ----------
-  const byKey = new Map<string, RunRef[]>();
-  for (const r of runs) {
-    const list = byKey.get(r.key) ?? [];
-    list.push(r);
-    byKey.set(r.key, list);
-  }
-  const channelCount = new Map<string, number>();
-  for (const [key, list] of byKey) {
-    const idx = colourIntervals(list.map((r) => ({ y1: r.y1, y2: r.y2 })));
-    idx.forEach((c, k) => {
-      const r = list[k];
-      const clamped = Math.min(c, LAYOUT.maxChannels - 1);
-      if (r.slot === 'tgt') r.plan.tgtCh = clamped;
-      else if (r.slot === 'loop') r.plan.loopCh = clamped;
-      else r.plan.srcCh = clamped; // 'skip' and 'src' both use srcCh
-    });
-    channelCount.set(key, Math.min(LAYOUT.maxChannels, Math.max(-1, ...idx) + 1));
-  }
-
-  // ---------- 5. lane geometry ----------
-  const usedLanes = new Set(steps.map((s) => s.laneId));
-  const staggerLanes = new Set(
-    steps.filter((_, i) => staggerDir.has(i)).map((s) => s.laneId),
-  );
-  const block = (n: number) => (n > 0 ? LAYOUT.channelGap + n * LAYOUT.channelW + 4 : 0);
+  const trackX = new Map<string, number>(); // "เลน:ราง" → x กึ่งกลาง
+  const corridorCenter = new Map<number, number>(); // corridorX → x กึ่งกลางทางเดิน
   const lanes: LaidLane[] = [];
   let x = LAYOUT.gutter;
   for (const lane of proc.lanes) {
     if (lane.kind === 'meta') {
       const collapsed = isCollapsed(lane);
       const w = collapsed ? META.collapsedW : META.width;
-      lanes.push({
-        lane, x, w, spineX: x + w / 2, centerX: x + w / 2,
-        contentW: w, channelsL: 0, channelsR: 0, collapsed,
-      });
+      lanes.push({ lane, x, w, spineX: x + w / 2, centerX: x + w / 2, collapsed });
       x += w;
       continue;
     }
-    const nL = channelCount.get(`${lane.id}:L`) ?? 0;
-    const nR = channelCount.get(`${lane.id}:R`) ?? 0;
-    const bare = !usedLanes.has(lane.id) && nL === 0 && nR === 0;
-    if (bare) {
-      lanes.push({
-        lane, x, w: LAYOUT.emptyLaneW,
-        spineX: x + LAYOUT.emptyLaneW / 2, centerX: x + LAYOUT.emptyLaneW / 2,
-        contentW: LAYOUT.emptyLaneW, channelsL: 0, channelsR: 0,
-      });
-      x += LAYOUT.emptyLaneW;
+    const k = orgIndex.get(lane.id) ?? 0;
+    const r = range.get(k);
+    if (!r) {
+      // เลนที่ไม่มีขั้นตอน: แคบลง (เส้นที่ผ่านเป็นแนวนอนเท่านั้น)
+      const w = LAYOUT.emptyLaneW;
+      lanes.push({ lane, x, w, spineX: x + w / 2, centerX: x + w / 2 });
+      x += w;
       continue;
     }
-    const contentW =
-      LAYOUT.laneContentW + (staggerLanes.has(lane.id) ? LAYOUT.boxOffset + 40 : 0);
-    const leftBlock = block(nL);
-    const w = LAYOUT.lanePad * 2 + leftBlock + contentW + block(nR);
-    lanes.push({
-      lane, x, w,
-      spineX: x + LAYOUT.lanePad + leftBlock + contentW / 2,
-      centerX: x + w / 2,
-      contentW,
-      channelsL: nL,
-      channelsR: nR,
-    });
-    x += w;
-  }
-  const lanesRight = x;
-  const orgLaid = lanes.filter((l) => l.lane.kind === 'org');
-  const loopN = channelCount.get(LOOP) ?? 0;
-  const width =
-    lanesRight +
-    (loopN > 0 ? LAYOUT.loopGap + loopN * LAYOUT.channelW + 12 : LAYOUT.loopMargin) +
-    10;
-
-  const laneById = new Map(lanes.map((l) => [l.lane.id, l]));
-  const channelX = (laneId: string, side: Side, c: number): number => {
-    const l = laneById.get(laneId);
-    if (!l) return lanesRight;
-    if (side === 'R') {
-      const cl = Math.min(c, Math.max(1, l.channelsR) - 1);
-      return (
-        l.spineX + l.contentW / 2 + LAYOUT.channelGap + cl * LAYOUT.channelW + LAYOUT.channelW / 2
-      );
+    const x0 = x;
+    let spineX = x0;
+    for (let p = r.lo - 0.5; p <= r.hi + 0.5 + 1e-9; p += 0.5) {
+      const ax = k * LANE_SPAN + p;
+      if (Math.abs(p - Math.round(p)) > 1e-6) {
+        // ทางเดิน (ครึ่งราง)
+        const outer = p < r.lo || p > r.hi;
+        const n = channelCount.get(ax) ?? 0;
+        const w =
+          (outer ? LAYOUT.lanePad : LAYOUT.trackGap) +
+          (n ? LAYOUT.channelGap + n * LAYOUT.channelW : 0);
+        corridorCenter.set(ax, x + w / 2);
+        x += w;
+      } else {
+        const bw = trackBoxW.get(`${k}:${p}`);
+        const w = bw ? bw + LAYOUT.trackPad * 2 : LAYOUT.emptyTrackW;
+        trackX.set(`${k}:${p}`, x + w / 2);
+        if (p === 0 || (p === r.lo && r.lo > 0)) spineX = x + w / 2;
+        x += w;
+      }
     }
-    const cl = Math.min(c, Math.max(1, l.channelsL) - 1);
-    return (
-      l.spineX - l.contentW / 2 - LAYOUT.channelGap - cl * LAYOUT.channelW - LAYOUT.channelW / 2
-    );
-  };
-  const loopX = (c: number) =>
-    lanesRight + LAYOUT.loopGap + c * LAYOUT.channelW + LAYOUT.channelW / 2;
+    const w = x - x0;
+    lanes.push({ lane, x: x0, w, spineX, centerX: x0 + w / 2 });
+  }
+  const width = x + LAYOUT.rightMargin;
 
-  // ---------- 6. boxes ----------
-  const firstOrg = orgLaid[0] ?? lanes[0];
+  /** x กึ่งกลางของช่องที่เส้น k ได้ในทางเดินของมัน */
+  const corridorPx = (e: PlannedEdge, k: number): number => {
+    const c = corridorCenter.get(e.corridorX as number) ?? x;
+    const n = channelCount.get(e.corridorX as number) ?? 1;
+    const ch = channelOf.get(k) ?? 0;
+    return c + (ch - (n - 1) / 2) * LAYOUT.channelW;
+  };
+
+  // ---------- 5. กล่อง ----------
   const boxes: LaidBox[] = steps.map((step, index) => {
-    const found = laneById.get(step.laneId);
-    const l = found && found.lane.kind === 'org' ? found : firstOrg;
     const mi = m[index];
-    const base = l ? l.spineX : LAYOUT.gutter + LAYOUT.laneContentW / 2;
-    const cx = base + (staggerDir.get(index) ?? 0) * LAYOUT.boxOffset;
+    const cx = trackX.get(`${plan.lane[index]}:${plan.track[index]}`) ?? LAYOUT.gutter;
     const cy = rowCy[index];
     return {
       step,
@@ -443,107 +327,29 @@ export function computeLayout(proc: Process, opts: LayoutOptions = {}): DiagramL
     };
   });
 
-  const isRound = (t: StepType) => t === 'start' || t === 'end' || t === 'connector';
+  // ---------- 6. เส้น + 7. ป้ายกิ่ง (ใช้ฟังก์ชันกลางร่วมกับ Excel) ----------
+  const routes = plan.edges.map((e, k) =>
+    edgeRoute(e, boxes[e.from], boxes[e.to], outY(e.from), inY(e.to), () => corridorPx(e, k)),
+  );
+  const labelPos = placeEdgeLabels(routes, labels, plan.edges, edgeLabelWidth, 20, boxes);
 
-  const outPoint = (b: LaidBox, slot: number, of: number) => {
-    if (isRound(b.step.type) || b.step.type === 'decision') return { x: b.cx, y: b.y + b.h };
-    const lo = b.x + 16;
-    const hi = b.x + b.w - 16;
-    const t = of <= 1 ? 0.5 : slot / (of - 1);
-    return { x: lo + (hi - lo) * t, y: b.y + b.h };
-  };
-  // every arrowhead lands on the top-centre of the target box
-  const inPoint = (b: LaidBox) => ({ x: b.cx, y: b.y });
-
-  // ---------- 7. edge paths ----------
-  const edges: LaidEdge[] = plans.map((p, k) => {
-    const F = boxes[p.fromIdx];
-    const T = boxes[p.toIdx];
-    const op = outPoint(F, p.outSlot, p.outOf);
-    const ip = inPoint(T);
-    const from = steps[p.fromIdx];
-    const to = steps[p.toIdx];
-    let path: string;
-    let labelX: number | undefined;
-    let labelY: number | undefined;
-    let labelAnchor: LaidEdge['labelAnchor'] = 'start';
-
-    if (p.kind === 'direct') {
-      if (Math.abs(op.x - ip.x) < 1) {
-        path = `M ${op.x} ${op.y} L ${ip.x} ${ip.y}`;
-        labelX = op.x + 8;
-        labelY = (op.y + ip.y) / 2;
-      } else {
-        const midY = (op.y + ip.y) / 2;
-        path = `M ${op.x} ${op.y} L ${op.x} ${midY} L ${ip.x} ${midY} L ${ip.x} ${ip.y}`;
-        labelX = (op.x + ip.x) / 2;
-        labelY = midY - 6;
-        labelAnchor = 'middle';
-      }
-    } else if (p.kind === 'skip') {
-      const side = p.srcSide ?? 'R';
-      const cx = channelX(from.laneId, side, p.srcCh ?? 0);
-      const y1 = op.y + 10;
-      const y2 = ip.y - 10;
-      path =
-        `M ${op.x} ${op.y} L ${op.x} ${y1} L ${cx} ${y1} ` +
-        `L ${cx} ${y2} L ${ip.x} ${y2} L ${ip.x} ${ip.y}`;
-      labelX = side === 'R' ? cx + 7 : cx - 7;
-      labelY = (y1 + y2) / 2;
-      labelAnchor = side === 'R' ? 'start' : 'end';
-    } else if (p.kind === 'cross') {
-      const yh = p.yh ?? (op.y + ip.y) / 2;
-      const parts = [`M ${op.x} ${op.y}`];
-      let sx = op.x;
-      if (p.srcCh != null && p.srcSide) {
-        const scx = channelX(from.laneId, p.srcSide, p.srcCh);
-        parts.push(`L ${op.x} ${op.y + 10}`, `L ${scx} ${op.y + 10}`, `L ${scx} ${yh}`);
-        sx = scx;
-      } else {
-        parts.push(`L ${op.x} ${yh}`);
-      }
-      let ex = ip.x;
-      if (p.tgtCh != null && p.tgtSide) {
-        const tcx = channelX(to.laneId, p.tgtSide, p.tgtCh);
-        parts.push(
-          `L ${tcx} ${yh}`,
-          `L ${tcx} ${ip.y - 10}`,
-          `L ${ip.x} ${ip.y - 10}`,
-          `L ${ip.x} ${ip.y}`,
-        );
-        ex = tcx;
-      } else {
-        parts.push(`L ${ip.x} ${yh}`, `L ${ip.x} ${ip.y}`);
-      }
-      path = parts.join(' ');
-      labelX = (sx + ex) / 2;
-      labelY = yh - 6;
-      labelAnchor = 'middle';
-    } else {
-      // loop
-      const lx = loopX(p.loopCh ?? 0);
-      const y2 = op.y + 14;
-      const y1 = ip.y - 14;
-      path =
-        `M ${op.x} ${op.y} L ${op.x} ${y2} L ${lx} ${y2} ` +
-        `L ${lx} ${y1} L ${ip.x} ${y1} L ${ip.x} ${ip.y}`;
-      labelX = lx - 7;
-      labelY = (y1 + y2) / 2;
-      labelAnchor = 'end';
-    }
-
+  const edges: LaidEdge[] = plan.edges.map((e, k) => {
+    const F = boxes[e.from];
+    const T = boxes[e.to];
+    const pos = labelPos[k];
     return {
       id: `${F.step.id}__${T.step.id}__${k}`,
       fromId: F.step.id,
       toId: T.step.id,
-      label: p.label,
-      path,
-      labelX,
-      labelY,
-      labelAnchor,
+      label: labels[k],
+      path: routes[k].pts.map(([px, py], n) => `${n ? 'L' : 'M'} ${px} ${py}`).join(' '),
+      labelX: pos?.[0],
+      labelY: pos?.[1],
+      labelAnchor: 'middle',
     };
   });
 
+  const orgLaid = lanes.filter((l) => l.lane.kind === 'org');
   return {
     width,
     height,
@@ -563,4 +369,135 @@ export function computeLayout(proc: Process, opts: LayoutOptions = {}): DiagramL
     gutterMarks: boxes.map((b) => ({ n: b.index + 1, y: b.cy })),
     edges,
   };
+}
+
+// ======================================================================
+// ส่วนกลางที่ Excel (lib/excelDrawing.ts) ใช้ด้วย — หน้าเว็บกับ Excel จึงเดินเส้นและวางป้ายเหมือนกัน
+// ======================================================================
+
+export type Pt = [number, number];
+
+/** ตำแหน่งกล่องที่ตัวเดินเส้นต้องรู้ (หน้าเว็บใช้ LaidBox, Excel ส่งค่าของตัวเองมา) */
+export interface BoxGeom {
+  cx: number;
+  cy: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * ตำแหน่งป้าย [x, y, ชิด] — ชิด 0 = ป้ายอยู่กึ่งกลาง x, 1 = ขอบซ้ายของป้ายอยู่ที่ x (ป้ายยื่นไปทางขวา),
+ * -1 = ขอบขวาของป้ายอยู่ที่ x (ยื่นไปทางซ้าย)
+ */
+export type Spot = [number, number, (-1 | 0 | 1)?];
+
+export interface EdgeRoute {
+  /** จุดหักของเส้น ตั้งแต่ต้นทางถึงหัวลูกศร */
+  pts: Pt[];
+  /** ตำแหน่งป้ายที่ลองตามลำดับ (ตัวแรกคือแบบผังตัวอย่าง ตัวถัดไปคือทางสำรองเมื่อชนเส้น/กล่อง) */
+  spots: Spot[];
+}
+
+/**
+ * รูปเส้นจริงของเส้นหนึ่งตามแผนจาก route.ts
+ * `yo` = ระดับเส้นแยกใต้ต้นทาง, `yi` = ระดับเส้นรวมเหนือปลายทาง,
+ * `corridor()` = x ของช่องในทางเดินที่เส้นนี้ได้ (เรียกเฉพาะเส้นที่อ้อม/ย้อนกลับ)
+ */
+export function edgeRoute(
+  e: PlannedEdge,
+  F: BoxGeom,
+  T: BoxGeom,
+  yo: number,
+  yi: number,
+  corridor: () => number,
+): EdgeRoute {
+  const sx = F.cx;
+  const tx = T.cx;
+  const sb = F.y + F.h; // จุดล่างสุดของรูป (ข้าวหลามตัด = มุมล่าง)
+  const tt = T.y;
+  const LABEL_DY = 13; // ป้ายกิ่งอยู่ใต้เส้นแยกเล็กน้อย บนเส้นของตัวเอง
+  switch (e.kind) {
+    case 'straight':
+      return { pts: [[sx, sb], [tx, tt]], spots: [[sx, yo + LABEL_DY], [sx, (yo + tt) / 2]] };
+    case 'early':
+      return {
+        pts: [[sx, sb], [sx, yo], [tx, yo], [tx, tt]],
+        spots: [[tx, yo + LABEL_DY], [(sx + tx) / 2, yo], [tx, (yo + tt) / 2]],
+      };
+    case 'late':
+      return {
+        pts: [[sx, sb], [sx, yi], [tx, yi], [tx, tt]],
+        spots: [[sx, yo + LABEL_DY], [sx, (yo + yi) / 2], [(sx + tx) / 2, yi]],
+      };
+    case 'corridor': {
+      const cx = corridor();
+      return {
+        pts: [[sx, sb], [sx, yo], [cx, yo], [cx, yi], [tx, yi], [tx, tt]],
+        spots: [[cx, yo + LABEL_DY], [(sx + cx) / 2, yo], [cx, (yo + yi) / 2]],
+      };
+    }
+    default: {
+      // loop — ออกด้านข้าง ขึ้นในทางเดิน แล้วเข้าด้านข้างกล่องปลายทาง
+      const s = e.side ?? 1;
+      const cx = corridor();
+      const ax = F.cx + (s * F.w) / 2;
+      const bx = T.cx + (s * T.w) / 2;
+      const mid = (F.cy + T.cy) / 2;
+      // ป้ายอยู่ด้านนอกของเส้น (ฝั่งที่ไม่มีกล่อง) แบบผังตัวอย่าง — ทางเดินแคบกว่าป้าย
+      // ถ้าวางกึ่งกลางเส้นจะทับกล่องข้าง ๆ
+      return {
+        pts: [[ax, F.cy], [cx, F.cy], [cx, T.cy], [bx, T.cy]],
+        spots: [[cx + s * 6, mid, s], [cx, mid, 0], [cx + s * 6, F.cy - 24, s], [cx + s * 6, T.cy + 24, s]],
+      };
+    }
+  }
+}
+
+/**
+ * วางป้ายกิ่งทีละป้าย: เลือกตำแหน่งแรกใน `spots` ที่ไม่ชนเส้นของต้นทางอื่น
+ * และไม่ชนป้ายที่วางไปแล้ว (กิ่งพี่น้องใช้เส้นแยกร่วมกัน จึงแตะเส้นกันได้)
+ */
+export function placeEdgeLabels(
+  routes: EdgeRoute[],
+  labels: (string | undefined)[],
+  edges: { from: number }[],
+  widthOf: (text: string) => number,
+  height: number,
+  /** กล่องทั้งหมด — ป้ายต้องไม่ทับข้อความในกล่อง */
+  boxes: BoxGeom[] = [],
+): (Pt | undefined)[] {
+  type Rect = { x1: number; x2: number; y1: number; y2: number };
+  const segsOf = (pts: Pt[]): Rect[] =>
+    pts.slice(1).map((b, n) => {
+      const a = pts[n];
+      return { x1: Math.min(a[0], b[0]), x2: Math.max(a[0], b[0]), y1: Math.min(a[1], b[1]), y2: Math.max(a[1], b[1]) };
+    });
+  const allSegs = routes.map((r) => segsOf(r.pts));
+  const placed: Rect[] = [];
+  const hits = (a: Rect, b: Rect) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+  return routes.map((r, k) => {
+    const text = labels[k];
+    if (!text) return undefined;
+    const w = widthOf(text);
+    const centerOf = ([x, y, side = 0]: Spot): Pt => [x + (side * w) / 2, y];
+    const rectAt = (sp: Spot): Rect => {
+      const [x, y] = centerOf(sp);
+      return { x1: x - w / 2, x2: x + w / 2, y1: y - height / 2, y2: y + height / 2 };
+    };
+    const boxRects: Rect[] = boxes.map((b) => ({ x1: b.x, x2: b.x + b.w, y1: b.y, y2: b.y + b.h }));
+    const clear = (rc: Rect) =>
+      !placed.some((p) => hits(p, rc)) &&
+      !boxRects.some((b) => hits(b, rc)) &&
+      !allSegs.some(
+        (ss, m) =>
+          m !== k &&
+          edges[m].from !== edges[k].from &&
+          ss.some((q) => hits({ x1: q.x1 - 1, x2: q.x2 + 1, y1: q.y1 - 1, y2: q.y2 + 1 }, rc)),
+      );
+    const spot = r.spots.find((s) => clear(rectAt(s))) ?? r.spots[0];
+    placed.push(rectAt(spot));
+    return centerOf(spot);
+  });
 }

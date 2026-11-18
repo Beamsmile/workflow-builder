@@ -7,6 +7,8 @@ import Splitter, { usePanelWidth } from './components/Splitter';
 import DiagramPane from './components/DiagramPane';
 import { useStore } from './store';
 import { hydrateWorkspace, startAutosave } from './lib/workspace';
+import { bindHistoryKeys, startHistory } from './lib/history';
+import ToastBar from './components/ToastBar';
 
 export default function App() {
   // one <svg> ref, shared by the diagram (writes it) and the exporter (reads it)
@@ -18,7 +20,11 @@ export default function App() {
   usePanelWidth();
 
   useEffect(() => {
-    void hydrateWorkspace().then(startAutosave);
+    void hydrateWorkspace().then(() => {
+      startAutosave();
+      startHistory(); // หลังโหลดงานเสร็จ — การโหลดเองไม่นับเป็นขั้นที่ย้อนกลับได้
+    });
+    return bindHistoryKeys();
   }, []);
 
   return (
@@ -31,6 +37,7 @@ export default function App() {
         <DiagramPane svgRef={svgRef} />
         {table && <StepTable onClose={() => setTable(false)} />}
       </div>
+      <ToastBar />
       {!hydrated && <div className="boot-veil" />}
     </div>
   );

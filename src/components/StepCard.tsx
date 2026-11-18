@@ -2,26 +2,35 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, isDefaultLabel } from '../store';
 import type { Step, StepFields, StepType } from '../domain/types';
 import { TYPE_LABEL } from '../domain/theme';
-import { ChevronDown, ChevronUp, Plus, X, ArrowRight } from './icons';
+import { ChevronDown, ChevronUp, Plus, X, ArrowRight, Grip } from './icons';
+import { showToast } from '../lib/toast';
+import { undo } from '../lib/history';
 
 const STEP_TYPES: StepType[] = ['start', 'process', 'decision', 'connector', 'end'];
 
-/** Which บฟ. fields each step type shows, in order. */
+/** ช่อง บฟ. ครบชุด — ทั้ง Process และ Decision มีแถวในตาราง บฟ. จึงกรอกได้ครบเหมือนกัน */
+const FORM_FIELDS: (keyof StepFields)[] = [
+  'duration',
+  'mainUnit',
+  'operatorRole',
+  'dataIn',
+  'dataOut',
+  'regulations',
+  'application',
+  'note',
+];
+
+/**
+ * Which บฟ. fields each step type shows, in order.
+ * - Decision เดิมไม่มี Data in/out กับ Application ทั้งที่มุมมองตารางมี และ Excel ก็ใช้ (วาดทรงกระบอก)
+ * - Start/End/จุดเชื่อม ไม่มีแถวในตาราง บฟ. ช่อง "ขั้นตอนย่อย" ที่เคยให้กรอกจึงไม่ไปไหน — เอาออก
+ */
 const FIELDS_FOR: Record<StepType, (keyof StepFields)[]> = {
-  start: ['note'],
-  end: ['note'],
-  process: [
-    'duration',
-    'mainUnit',
-    'operatorRole',
-    'dataIn',
-    'dataOut',
-    'regulations',
-    'application',
-    'note',
-  ],
-  decision: ['duration', 'mainUnit', 'operatorRole', 'regulations', 'note'],
-  connector: ['note'],
+  start: [],
+  end: [],
+  process: FORM_FIELDS,
+  decision: FORM_FIELDS,
+  connector: [],
 };
 
 const FIELD_LABEL: Record<keyof StepFields, string> = {
@@ -60,12 +69,15 @@ export default function StepCard({
   total,
   selected,
   expanded,
+  onDragHandle,
 }: {
   step: Step;
   index: number;
   total: number;
   selected: boolean;
   expanded: boolean;
+  /** เริ่มลากการ์ดนี้ (จับที่ปุ่มจุด ๆ ด้านซ้าย) — StepList เป็นคนจัดการวาง */
+  onDragHandle?: (e: React.DragEvent, el: HTMLElement | null) => void;
 }) {
   const steps = useStore((s) => s.steps);
   const lanes = useStore((s) => s.lanes).filter((l) => l.kind === 'org');
@@ -112,13 +124,14 @@ export default function StepCard({
   const formFields = FIELDS_FOR[step.type].filter((f) => f !== 'note');
   const filled = formFields.filter((f) => (step[f] ?? '').toString().trim()).length;
   const linked = branches.filter((b) => b.toStepId).length;
-  // Start/End/Connector have no บฟ. fields, so fall back to a tab that exists
-  const activeTab: CardTab =
-    tab === 'form' && formFields.length === 0
-      ? 'detail'
-      : tab === 'routes' && !showRouting
-        ? 'form'
-        : tab;
+  // แท็บที่ขั้นชนิดนี้มีจริง — Start/End/จุดเชื่อมไม่มีช่อง บฟ. ให้ไปแท็บที่มีแทน (End อาจไม่มีแท็บเลย)
+  const hasDetail = FIELDS_FOR[step.type].includes('note');
+  const tabsHere = [
+    formFields.length > 0 && 'form',
+    showRouting && 'routes',
+    hasDetail && 'detail',
+  ].filter(Boolean) as CardTab[];
+  const activeTab: CardTab | undefined = tabsHere.includes(tab) ? tab : tabsHere[0];
   const chips: { key: string; text: string; warn?: boolean; title: string }[] = [];
   if (step.mainUnit?.trim()) {
     chips.push({ key: 'unit', text: step.mainUnit.trim(), title: 'หน่วยงานรับผิดชอบหลัก' });
@@ -171,6 +184,17 @@ export default function StepCard({
         onClick={() => toggleExpand(step.id)}
         title={expanded ? 'คลิกเพื่อย่อ' : 'คลิกเพื่อกาง'}
       >
+        {onDragHandle && (
+          <span
+            className="drag-grip"
+            draggable
+            title="ลากเพื่อย้ายลำดับ"
+            onClick={(e) => e.stopPropagation()}
+            onDragStart={(e) => onDragHandle(e, cardRef.current)}
+          >
+            <Grip width={12} height={12} />
+          </span>
+        )}
         <span className="step-no">{index + 1}</span>
 
         {expanded ? (
@@ -283,6 +307,7 @@ export default function StepCard({
           {/* One tall form was 984px in an 807px panel, so its last fields and
               the whole routing section sat below the fold. Split into tabs, any
               one of them fits on screen. */}
+          {tabsHere.length > 0 && (
           <div className="card-tabs" role="tablist">
             {formFields.length > 0 && (
               <button
@@ -303,15 +328,18 @@ export default function StepCard({
                 <span className={`card-tab-n${linked === 0 ? ' is-warn' : ''}`}>{linked}</span>
               </button>
             )}
-            <button
-              role="tab"
-              className={`card-tab${activeTab === 'detail' ? ' is-on' : ''}`}
-              onClick={() => setTab('detail')}
-            >
-              ขั้นตอนย่อย
-              {subCount > 0 && <span className="card-tab-n">{subCount}</span>}
-            </button>
+            {hasDetail && (
+              <button
+                role="tab"
+                className={`card-tab${activeTab === 'detail' ? ' is-on' : ''}`}
+                onClick={() => setTab('detail')}
+              >
+                ขั้นตอนย่อย
+                {subCount > 0 && <span className="card-tab-n">{subCount}</span>}
+              </button>
+            )}
           </div>
+          )}
 
           {activeTab === 'form' && formFields.length > 0 && (
             <div className="field-grid">
@@ -434,7 +462,14 @@ export default function StepCard({
             </div>
           )}
 
-          <button className="danger-btn" onClick={() => deleteStep(step.id)}>
+          <button
+            className="danger-btn"
+            onClick={() => {
+              deleteStep(step.id);
+              // ลบทันที ไม่ต้องกดยืนยัน — กดผิดก็กด "ย้อนกลับ" หรือ ⌘Z ได้
+              showToast(`ลบขั้นตอน “${truncate(step.label)}” แล้ว`, { label: 'ย้อนกลับ', run: undo });
+            }}
+          >
             ลบขั้นตอนนี้
           </button>
         </div>

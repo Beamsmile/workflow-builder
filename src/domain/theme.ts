@@ -75,20 +75,26 @@ export const ORG_TAG = { maxChars: 32, fontSize: 9.5 } as const;
 export const LAYOUT = {
   /** left gutter that shows the step number */
   gutter: 54,
-  /** padding inside a lane, each side of the box area */
-  lanePad: 30,
-  /** box-area width of a normal used org lane (staggered lanes grow — see layout) */
-  laneContentW: 320,
-  /** horizontal stagger for a box reached by an extra decision branch (same lane) */
-  boxOffset: 92,
-  /** width of a lane that has no steps and no routed edges */
+  /** ทางเดินริมซ้าย/ขวาของเลน (ยังไม่นับช่องให้เส้นที่อ้อม) */
+  lanePad: 22,
+  /** ทางเดินระหว่างสองรางในเลนเดียวกัน (ยังไม่นับช่องให้เส้นที่อ้อม) */
+  trackGap: 18,
+  /** เว้นข้างกล่องในราง แต่ละข้าง — กันป้ายกิ่งชนเส้นของรางข้าง ๆ */
+  trackPad: 16,
+  /** รางที่ไม่มีกล่อง (อยู่ระหว่างรางที่มีกล่อง) ย่อเหลือเท่านี้ */
+  emptyTrackW: 28,
+  /** width of a lane that has no steps */
   emptyLaneW: 124,
   /** gap between the box area and the first routing channel */
-  channelGap: 14,
-  /** width of one routing channel (a lane widens by this per channel it needs) */
+  channelGap: 10,
+  /** width of one routing channel (a corridor widens by this per channel it needs) */
   channelW: 16,
-  /** never widen a lane past this many channels */
-  maxChannels: 8,
+  /** ระยะจากใต้กล่อง (หรือใต้ป้ายหน่วยงาน) ถึงเส้นแยกกิ่ง และจากเส้นรวมถึงขอบบนกล่อง */
+  busGap: 14,
+  /** แถวที่มีป้ายกิ่งห้อยอยู่ใต้กล่อง เว้นเพิ่มเท่านี้ */
+  labelRowExtra: 22,
+  /** ขอบขวาสุดของผัง */
+  rightMargin: 28,
   /** band strip height */
   bandHeight: 26,
   /** lane-header strip height (under the band) */
@@ -99,10 +105,6 @@ export const LAYOUT = {
   rowTop: 30,
   /** bottom padding after the last row */
   rowBottom: 56,
-  /** gap before the first loop-back channel, right of all lanes */
-  loopGap: 12,
-  /** right margin when there are no loop-back edges */
-  loopMargin: 28,
 } as const;
 
 export const HEADER_HEIGHT = LAYOUT.bandHeight + LAYOUT.laneHeadHeight;
