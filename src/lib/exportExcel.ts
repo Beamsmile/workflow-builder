@@ -109,7 +109,6 @@ export async function exportExcel(proc: Process, fileStem: string) {
   // คอลัมน์ผังมีเลนละคอลัมน์ (ฟอร์มมาตรฐาน 4 เลน = J–M) จำนวนคอลัมน์ทั้งแผ่นจึงขึ้นกับจำนวนเลน
   const lanes = diagram.laneHeaders.length ? diagram.laneHeaders : ['อื่นๆ'];
   const totalCols = 9 + lanes.length;
-  const lastCol = totalCols - 1;
   const blanks = (n: number) => Array(n).fill(null);
 
   // Row 1 — title across every column
@@ -148,25 +147,17 @@ export async function exportExcel(proc: Process, fileStem: string) {
   // Data rows — the diagram columns (J onward) are just the drawing canvas now.
   const richTasks: Array<{ full: string; title: string }> = [];
   /**
-   * เซลล์ในคอลัมน์ผัง (I ถึงคอลัมน์สุดท้าย) ไม่มีเส้นตารางด้านใน ให้เส้นของผังเห็นชัด (ผู้ใช้ขอ 18 พ.ย. 2569)
-   * เหลือเฉพาะกรอบนอก: ซ้ายของ I, ขวาของคอลัมน์สุดท้าย และล่างสุดของแถวสุดท้าย
+   * เซลล์ในคอลัมน์ผัง (I ถึงคอลัมน์สุดท้าย) = พื้นที่วาดรูปทรง ไม่ใส่เส้นขอบเลย
+   * ให้เป็นเหมือนเซลล์ใน Excel ที่เปิดมาใหม่ (เห็นเส้นตารางจาง ๆ ของ Excel เอง) — ผู้ใช้ขอ 18 พ.ย. 2569
+   * (รอบแรกซ่อนเส้นตารางของ Excel ด้วย ผู้ใช้บอกว่าไม่ได้ต้องการแบบนั้น แค่ไม่ต้องมีเส้นขอบที่วาดทับ)
+   * ไม่ใส่ข้อความด้วย — ชื่อ Application อยู่ในรูปทรงกระบอกในคอลัมน์ I แล้ว
    */
-  const flowCell = (col: number, last: boolean, value: string): NonNullable<Cell> => {
-    const { borderColor: _c, borderStyle: _s, ...rest } = b({ value });
-    const edge = (on: boolean) => (on ? { style: 'thin' as const, color: BORDER } : null);
-    const L = edge(col === 8);
-    const R = edge(col === lastCol);
-    const B = edge(last);
-    return {
-      ...rest,
-      ...(L && { leftBorderStyle: L.style, leftBorderColor: L.color }),
-      ...(R && { rightBorderStyle: R.style, rightBorderColor: R.color }),
-      ...(B && { bottomBorderStyle: B.style, bottomBorderColor: B.color }),
-    };
+  const flowCell = (): NonNullable<Cell> => {
+    const { borderColor: _c, borderStyle: _s, ...rest } = b({ value: '' });
+    return rest;
   };
 
   steps.forEach((step, i) => {
-    const last = i === steps.length - 1;
     const rowHeight = diagram.rowHeightsPt[i];
     const task = taskCellText(step, proc);
     richTasks.push(task);
@@ -179,8 +170,8 @@ export async function exportExcel(proc: Process, fileStem: string) {
       b({ value: step.dataIn || '-' }),
       b({ value: step.dataOut || '-' }),
       b({ value: step.regulations || '-' }),
-      flowCell(8, last, step.application || '-'),
-      ...lanes.map((_, k) => flowCell(9 + k, last, '')),
+      flowCell(), // Application — มีแต่รูปทรงกระบอก ไม่มีข้อความในเซลล์
+      ...lanes.map(() => flowCell()),
     ]);
   });
 
@@ -210,9 +201,9 @@ export async function exportExcel(proc: Process, fileStem: string) {
   // write-excel-file ไม่ใส่ <sheetViews> — ถ้าไม่มี Excel (Mac) จะคิดตำแหน่งรูปทรงแนวตั้งผิดเป็น 0.75 เท่า
   // (ทดสอบแล้ว: สี่เหลี่ยมที่สูงเท่าแถวพอดีออกมาสูงแค่ 3/4 แถว) ไฟล์ที่ Excel บันทึกเองมีส่วนนี้เสมอ
   // ลำดับใน <worksheet>: sheetPr, dimension, sheetViews, ... — ไฟล์นี้ไม่มีสองตัวแรก จึงใส่ต้นสุดได้
-  // showGridLines="0": ซ่อนเส้นตารางจาง ๆ ของ Excel เอง ไม่งั้นคอลัมน์ผังที่ไม่มีเส้นขอบจะมีเส้นเทาโผล่แทน
+  // เส้นตารางจาง ๆ ของ Excel เปิดไว้ตามปกติ (ผู้ใช้ต้องการให้คอลัมน์ผังเหมือนเปิด Excel ใหม่)
   if (!sheet.includes('<sheetViews')) {
-    sheet = sheet.replace(/(<worksheet[^>]*>)/, '$1<sheetViews><sheetView showGridLines="0" workbookViewId="0"/></sheetViews>');
+    sheet = sheet.replace(/(<worksheet[^>]*>)/, '$1<sheetViews><sheetView workbookViewId="0"/></sheetViews>');
   }
   zip.file(sheetPath, spliceBefore(sheet, '</worksheet>', '<drawing r:id="rId1"/>'));
 
