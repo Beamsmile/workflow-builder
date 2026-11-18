@@ -8,7 +8,7 @@
  *   - Application = ทรงกระบอก (can) ในคอลัมน์ I ต่อกับกล่องด้วยเส้นประสีเขียว
  *   - **เส้นเชื่อมเป็นเส้นเดียวที่เลี้ยวได้ (elbow connector) และเกาะกับกล่อง**
  *     (stCxn / endCxn) — ลากกล่องใน Excel แล้วเส้นตามไปเอง ไม่ใช่เส้นตรงหลายท่อนต่อกัน
- *   - ป้ายกิ่ง = กล่องข้อความพื้นขาวไม่มีขอบ ตัวแดง วางบนเส้นของตัวเอง
+ *   - ป้ายกิ่ง = กล่องข้อความพื้นเหลืองทอง (#FFC000) ตัวดำหนา วางบนเส้นของตัวเอง
  *
  * ตำแหน่งกล่องกับรูปแบบเส้นมาจาก `domain/route.ts` ชุดเดียวกับหน้าเว็บ
  * (เส้น/ป้ายใช้ `edgeRoute` + `placeEdgeLabels` ของ `domain/layout.ts`) ผังสองที่จึงตรงกัน
@@ -71,18 +71,24 @@ const MAX_COL_CHARS = 160;
 const BUS = 16; // เส้นแยกใต้กล่อง / เส้นรวมเหนือกล่อง
 const GAP_ABOVE = 26; // ที่ว่างเหนือรูปทรง (ให้เส้นรวม)
 const GAP_BELOW = 26; // ที่ว่างใต้รูปทรง (ให้เส้นแยก)
-const LABEL_ROOM = 30; // ที่เพิ่มใต้รูปทรงที่มีป้ายกิ่งห้อยอยู่
+const LABEL_ROOM = 36; // ที่เพิ่มใต้รูปทรงที่มีป้ายกิ่งห้อยอยู่ (ป้าย 16pt สูง 32px + ระยะห่าง)
 const MIN_ROW_PX = 62;
 const MAX_ROW_PX = 545; // Excel สูงสุด 409pt
 
 // ---- สี/ตัวอักษร ----
 const FONT = 'TH SarabunPSK';
 const BLACK = '000000';
-const LABEL_RED = 'FF0000';
+/**
+ * ป้ายกิ่ง: พื้นเหลืองทอง ตัวดำหนา 16pt — ตามผังตัวอย่างของทีม (Microgrid Operation, สับเปลี่ยนมิเตอร์ V.6)
+ * ผู้ใช้ขอ 18 พ.ย. 2569 (เดิมพื้นขาวตัวแดง 12pt ตาม Maintenance V.4 — มองไม่ค่อยเห็นว่าเป็นป้าย)
+ */
+const LABEL_FILL = 'FFC000';
+const LABEL_TEXT = '000000';
+const LABEL_PT = 16;
 const APP_GREEN = '70AD47';
-const LABEL_H = 26;
-/** ป้ายกิ่ง 12pt ตัวหนา — กะความกว้างจากจำนวนตัวอักษร (ไม่นับสระบน/ล่าง วรรณยุกต์) */
-const labelW = (t: string) => Math.round(t.replace(/[ัิ-ฺ็-๎]/g, '').length * 7.6 + 18);
+const LABEL_H = 32;
+/** ป้ายกิ่ง 16pt ตัวหนา — กะความกว้างจากจำนวนตัวอักษร (ไม่นับสระบน/ล่าง วรรณยุกต์) + ขอบพื้นสีซ้ายขวา */
+const labelW = (t: string) => Math.round(t.replace(/[ัิ-ฺ็-๎]/g, '').length * 10.2 + 28);
 
 /** จุดเกาะเส้นบนรูปทรงแต่ละชนิด (ลำดับตาม preset ของ Office — ตรวจกับไฟล์ตัวอย่างแล้ว) */
 const SITE: Record<string, { top: number; left: number; bottom: number; right: number }> = {
@@ -124,19 +130,37 @@ export function stepSubActions(step: Step): string[] {
  *    - <หน่วยงานรับผิดชอบหลัก> <ชื่อขั้นตอน>
  *        * <ขั้นตอนย่อย>
  *        * ...
- *        * หาก<กรณี> ให้ดำเนินการข้อ N ต่อ          ← decision: one per branch
+ *        1. กรณี<ป้ายเส้น> ให้ดำเนินการขั้นตอนที่ N   ← decision: one numbered line per branch
  */
 export function taskCellText(step: Step, proc: Process): { full: string; title: string } {
   const dataSteps = proc.steps.filter((s) => s.type === 'process' || s.type === 'decision');
   const selfIdx = dataSteps.findIndex((s) => s.id === step.id);
+  /**
+   * ปลายทางจริงของเส้น — ถ้าชี้ไปจุดเชื่อม (เช่น "B") ให้ตามต่อไปยังขั้นที่จุดเชื่อมนั้นพาไป
+   * เดิมเส้นที่ไปจุดเชื่อมไม่ถูกเขียนในคอลัมน์นี้เลย เพราะจุดเชื่อมไม่มีเลขขั้นตอน
+   */
+  const resolve = (toStepId: string): Step | undefined => {
+    let target = proc.steps.find((s) => s.id === toStepId);
+    for (let hop = 0; target?.type === 'connector' && hop < 10; hop++) {
+      const next = (target.branches ?? []).find((b) => b.toStepId)?.toStepId;
+      const after = next ? proc.steps.find((s) => s.id === next) : undefined;
+      if (!after) break; // จุดเชื่อมที่ไม่ได้ต่อไปไหน (ข้ามไปหน้าอื่น) — หยุดที่จุดเชื่อม
+      target = after;
+    }
+    return target;
+  };
+  // ถ้อยคำตามฟอร์มของทีม: "ให้ดำเนินการขั้นตอนที่ N" (ผู้ใช้ส่งตัวอย่างมา 18 พ.ย. 2569)
   const routeText = (toStepId: string): string | null => {
-    const target = proc.steps.find((s) => s.id === toStepId);
+    const target = resolve(toStepId);
     if (!target) return null;
     if (target.type === 'end') return 'ให้จบกระบวนการ';
     if (target.type === 'start') return 'ให้กลับไปที่จุดเริ่มต้น';
-    const toIdx = dataSteps.findIndex((s) => s.id === toStepId);
+    if (target.type === 'connector') return `ให้ไปต่อที่จุดเชื่อม ${target.label || 'A'}`;
+    const toIdx = dataSteps.findIndex((s) => s.id === target.id);
     if (toIdx < 0) return null;
-    return toIdx < selfIdx ? `ให้กลับไปดำเนินการข้อ ${toIdx + 1}` : `ให้ดำเนินการข้อ ${toIdx + 1} ต่อ`;
+    return toIdx < selfIdx
+      ? `ให้กลับไปดำเนินการขั้นตอนที่ ${toIdx + 1}`
+      : `ให้ดำเนินการขั้นตอนที่ ${toIdx + 1}`;
   };
 
   const title =
@@ -156,21 +180,26 @@ export function taskCellText(step: Step, proc: Process): { full: string; title: 
   for (const s of subs) lines.push(`     * ${s}`);
 
   if (step.type === 'decision') {
-    // spell out which case goes to which step
+    // แต่ละกรณีเป็นข้อมีเลข แบบฟอร์มของทีม:
+    //      1. กรณีไม่ต้องระดมผู้ปฏิบัติงาน ให้ดำเนินการขั้นตอนที่ 5
+    // ป้ายที่ขึ้นต้นด้วย "กรณี"/"หาก" อยู่แล้วไม่ต้องเติม "กรณี" ซ้ำ
+    let n = 0;
     for (const br of step.branches ?? []) {
       if (!br.toStepId) continue;
       const route = routeText(br.toStepId);
       if (!route) continue;
-      lines.push(`     * ${br.label ? `หาก${br.label} ` : ''}${route}`);
+      const label = br.label.trim();
+      const when = !label ? '' : /^(กรณี|หาก)/.test(label) ? `${label} ` : `กรณี${label} `;
+      lines.push(`     ${++n}. ${when}${route}`);
     }
   } else {
     // a step that jumps somewhere other than the next row — note the target
     const br = (step.branches ?? []).find((b) => b.toStepId);
     if (br?.toStepId) {
-      const toIdx = dataSteps.findIndex((s) => s.id === br.toStepId);
-      const target = proc.steps.find((s) => s.id === br.toStepId);
+      const target = resolve(br.toStepId);
+      const toIdx = target ? dataSteps.findIndex((s) => s.id === target.id) : -1;
       if (target?.type === 'end') lines.push('     * ให้จบกระบวนการ');
-      else if (toIdx >= 0 && toIdx !== selfIdx + 1) {
+      else if (target?.type === 'connector' || (toIdx >= 0 && toIdx !== selfIdx + 1)) {
         const route = routeText(br.toStepId);
         if (route) lines.push(`     * ${route}`);
       }
@@ -421,6 +450,20 @@ export function computeExcelDiagram(proc: Process): ExcelDiagram {
   );
   const labelPos = placeEdgeLabels(routes, labels, plan.edges, labelW, LABEL_H, geom);
 
+  // ป้ายที่ยื่นเลยขอบขวาของคอลัมน์สุดท้าย (เช่น ป้ายของเส้นย้อนกลับที่ชิดขวาสุด) — Excel จะบีบกล่องป้าย
+  // ให้เหลือแค่ถึงขอบคอลัมน์ พื้นสีเหลือเป็นแถบบาง ๆ ตัวหนังสือล้นออกไป จึงขยายคอลัมน์สุดท้ายให้พอ
+  // (คอลัมน์สุดท้ายกว้างขึ้นไม่ทำให้รูปทรงหรือเส้นไหนเลื่อน)
+  let labelRight = 0;
+  labelPos.forEach((pos, k) => {
+    const text = labels[k];
+    if (pos && text) labelRight = Math.max(labelRight, pos[0] + labelW(text) / 2 + 8);
+  });
+  if (labelRight > colStart[LAST_COL + 1]) {
+    colWidthChars[LAST_COL] = Math.ceil(pxToChars(labelRight - colStart[LAST_COL]) * 10) / 10;
+    COL_PX[LAST_COL] = charsToPx(colWidthChars[LAST_COL]);
+    colStart[LAST_COL + 1] = colStart[LAST_COL] + COL_PX[LAST_COL];
+  }
+
   // ---- 6. เขียน XML ----
   const out: string[] = [];
   let nextId = 2;
@@ -575,7 +618,7 @@ export function computeExcelDiagram(proc: Process): ExcelDiagram {
     connector(kind, pts, site(e.from, 'bottom'), site(e.to, 'top'), black);
   });
 
-  // ป้ายกิ่ง: กล่องข้อความพื้นขาวไม่มีขอบ วางทับเส้น — เส้นจึงดูขาดตรงป้ายเหมือนผังตัวอย่าง
+  // ป้ายกิ่ง: กล่องข้อความพื้นเหลืองทองไม่มีขอบ วางทับเส้น — เส้นดูขาดตรงป้าย และเห็นชัดว่าป้ายเป็นของเส้นไหน
   labelPos.forEach((pos, k) => {
     const text = labels[k];
     if (!pos || !text) return;
@@ -585,9 +628,9 @@ export function computeExcelDiagram(proc: Process): ExcelDiagram {
       { x: pos[0] - w / 2, y: pos[1] - LABEL_H / 2, w, h: LABEL_H },
       `<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="TextBox ${id}"/><xdr:cNvSpPr txBox="1"/></xdr:nvSpPr>` +
         `<xdr:spPr><a:xfrm><a:off x="${emu(pos[0] - w / 2)}" y="${emu(pos[1] - LABEL_H / 2)}"/><a:ext cx="${emu(w)}" cy="${emu(LABEL_H)}"/></a:xfrm>` +
-        `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln><a:noFill/></a:ln></xdr:spPr>` +
+        `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${LABEL_FILL}"/></a:solidFill><a:ln><a:noFill/></a:ln></xdr:spPr>` +
         `<xdr:txBody><a:bodyPr vertOverflow="overflow" horzOverflow="overflow" wrap="none" lIns="18000" tIns="0" rIns="18000" bIns="0" rtlCol="0" anchor="ctr"/>` +
-        `<a:lstStyle/>${para(run(text, 12, LABEL_RED, true))}</xdr:txBody></xdr:sp>`,
+        `<a:lstStyle/>${para(run(text, LABEL_PT, LABEL_TEXT, true))}</xdr:txBody></xdr:sp>`,
     );
   });
 
